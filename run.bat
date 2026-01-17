@@ -1,0 +1,37 @@
+@echo off
+echo ========================================
+echo   ResNet Inference Engine
+echo ========================================
+echo.
+
+:: Navigate to Release folder
+cd /d "%~dp0build\Release"
+
+:: Check if executable exists
+if not exist main.exe (
+    echo ERROR: main.exe not found!
+    echo Please run build.bat first.
+    pause
+    exit /b 1
+)
+
+:: Check if model exists
+if not exist resnet18.onnx (
+    echo Copying model file...
+    copy "..\..\resnet18.onnx" "." 2>nul
+)
+
+:: Run with default test image or provided image
+if "%~1"=="" (
+    echo No image specified. Downloading test image...
+    powershell -Command "Invoke-WebRequest -Uri 'https://upload.wikimedia.org/wikipedia/commons/thumb/4/4d/Cat_November_2010-1a.jpg/600px-Cat_November_2010-1a.jpg' -OutFile 'test_cat.jpg'"
+    echo.
+    echo Running inference on test_cat.jpg...
+    main.exe test_cat.jpg resnet18.onnx
+) else (
+    echo Running inference on %~1...
+    main.exe "%~1" resnet18.onnx
+)
+
+echo.
+pause

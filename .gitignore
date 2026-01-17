@@ -1,0 +1,8 @@
+.vscode
+onnxruntime
+opencv
+practice
+opencv-installer.exe
+resnet18.onnx
+build
+.env
