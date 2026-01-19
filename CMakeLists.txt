@@ -3,18 +3,28 @@ project(OnnxInference)
 
 set(CMAKE_CXX_STANDARD 17)
 
+# Project paths
+set(PROJECT_ROOT "${CMAKE_SOURCE_DIR}")
+set(SRC_DIR "${PROJECT_ROOT}/src")
+set(THIRD_PARTY_DIR "${PROJECT_ROOT}/third_party")
+
 # ONNX Runtime
-set(ONNX_ROOT "${CMAKE_SOURCE_DIR}/onnxruntime") 
+set(ONNX_ROOT "${THIRD_PARTY_DIR}/onnxruntime") 
 include_directories(${ONNX_ROOT}/include)
 link_directories(${ONNX_ROOT}/lib)
 
 # OpenCV
-set(OpenCV_DIR "${CMAKE_SOURCE_DIR}/opencv/build")
+set(OpenCV_DIR "${THIRD_PARTY_DIR}/opencv/build")
 find_package(OpenCV REQUIRED)
 include_directories(${OpenCV_INCLUDE_DIRS})
 
+# Source files
+set(SOURCES
+    ${SRC_DIR}/main.cpp
+)
+
 # Build executable
-add_executable(main main.cpp)
+add_executable(main ${SOURCES})
 
 # Link libraries
 target_link_libraries(main onnxruntime ${OpenCV_LIBS})
@@ -30,7 +40,7 @@ if(WIN32)
     # Copy OpenCV DLLs
     add_custom_command(TARGET main POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        "${CMAKE_SOURCE_DIR}/opencv/build/x64/vc16/bin/opencv_world4100.dll"
+        "${THIRD_PARTY_DIR}/opencv/build/x64/vc16/bin/opencv_world4100.dll"
         $<TARGET_FILE_DIR:main>
     )
 endif()

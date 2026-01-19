@@ -1,8 +1,20 @@
-.vscode
-onnxruntime
-opencv
-practice
-opencv-installer.exe
-resnet18.onnx
-build
+# Build output
+build/
+
+# Third-party libraries
+third_party/
+
+# Environment files
 .env
+
+# IDE
+.vscode/
+
+# Models and data (large files)
+models/*.onnx
+data/
+
+# Windows
+*.exe
+*.dll
+*.pdb

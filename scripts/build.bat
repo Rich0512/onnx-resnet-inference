@@ -6,8 +6,8 @@ echo   ResNet Inference Engine - Build Script
 echo ========================================
 echo.
 
-:: Navigate to project directory
-cd /d "%~dp0"
+:: Navigate to project root directory
+cd /d "%~dp0.."
 
 :: Default values
 set "VS_VCVARS_PATH=C:/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools/VC/Auxiliary/Build/vcvars64.bat"
@@ -44,7 +44,7 @@ if exist "!VS_VCVARS_PATH!" (
 )
 
 :: Navigate back to project directory (vcvars may change dir)
-cd /d "%~dp0"
+cd /d "%~dp0.."
 
 :: Create build directory if not exists
 if not exist build mkdir build
@@ -63,15 +63,16 @@ cmake -G "!CMAKE_GENERATOR!" -A !CMAKE_ARCHITECTURE! ..
 echo [3/4] Building...
 cmake --build . --config Release
 
-:: Copy model file
+:: Copy model and test files
 echo.
 echo [4/4] Copying files...
-copy "..\resnet18.onnx" "Release\" 2>nul
+if exist "..\models\resnet18.onnx" copy "..\models\resnet18.onnx" "Release\" 2>nul
+if exist "..\data\test_cat.jpg" copy "..\data\test_cat.jpg" "Release\" 2>nul
 
 echo.
 echo ========================================
 echo   Build Complete!
-echo   Executable: %~dp0build\Release\main.exe
+echo   Executable: %~dp0..\build\Release\main.exe
 echo ========================================
 echo.
 pause
