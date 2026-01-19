@@ -49,21 +49,21 @@ std::vector<float> preprocess_image(const cv::Mat& img) {
     return input_data;
 }
 
-std::vector<float> preprocess_image_v2(const cv::Mat& img) {
-    float c1 = (0.485f * 255.0f) / 0.229f;
-    float c2 = (0.456f * 255.0f) / 0.224f;
-    float c3 = (0.406f * 255.0f) / 0.225f;
-    cv::Mat blob = cv::dnn::blobFromImage(
-        img,
-        1.0 / 255.0,
-        cv::Size(224, 224),
-        // cv::Scalar((0.485 * 255)/0.229f, (0.456 * 255)/0.224f, (0.406 * 255)/0.225f),
-        cv::Scalar(c1, c2, c3),
-        true,
-        false
-    ); 
-    return std::vector<float>(blob.begin<float>(), blob.end<float>());
-}
+// std::vector<float> preprocess_image_v2(const cv::Mat& img) {
+//     float c1 = (0.485f * 255.0f) / 0.229f;
+//     float c2 = (0.456f * 255.0f) / 0.224f;
+//     float c3 = (0.406f * 255.0f) / 0.225f;
+//     cv::Mat blob = cv::dnn::blobFromImage(
+//         img,
+//         1.0 / 255.0,
+//         cv::Size(224, 224),
+//         // cv::Scalar((0.485 * 255)/0.229f, (0.456 * 255)/0.224f, (0.406 * 255)/0.225f),
+//         cv::Scalar(c1, c2, c3),
+//         true,
+//         false
+//     ); 
+//     return std::vector<float>(blob.begin<float>(), blob.end<float>());
+// }
 
 
 /**
@@ -125,8 +125,8 @@ int main(int argc, char* argv[]) {
     std::cout << "\n[3] Preprocessing image..." << std::endl;
     
     auto start_preprocess = std::chrono::high_resolution_clock::now();
-    // std::vector<float> input_data = preprocess_image(img);
-    std::vector<float> input_data = preprocess_image_v2(img);
+    std::vector<float> input_data = preprocess_image(img);
+    // std::vector<float> input_data = preprocess_image_v2(img);
     auto end_preprocess = std::chrono::high_resolution_clock::now();
     
     auto preprocess_time = std::chrono::duration_cast<std::chrono::microseconds>(end_preprocess - start_preprocess).count();
