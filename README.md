@@ -8,10 +8,10 @@ A high-performance image classification system built with C++ and ONNX Runtime.
 
 ## Features
 
-- 🚀 **High Performance**: ~150 FPS on CPU
-- 🖼️ **Image Classification**: ResNet18 with ImageNet 1000 classes
-- ⏱️ **Benchmarking**: Built-in performance measurement
-- 🔧 **Cross-platform**: Windows with Visual Studio Build Tools
+-  **High Performance**: ~150 FPS on CPU
+-  **Image Classification**: ResNet18 with ImageNet 1000 classes
+-  **Benchmarking**: Built-in performance measurement
+-  **Cross-platform**: Windows with Visual Studio Build Tools
 
 ## Performance
 
