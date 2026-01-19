@@ -22,18 +22,21 @@ if not exist resnet18.onnx (
     copy "..\..\models\resnet18.onnx" "." 2>nul
 )
 
+:: Check if test image exists, download if not
+if not exist test_cat.jpg (
+    echo Downloading test image...
+    powershell -Command "Invoke-WebRequest -Uri 'https://upload.wikimedia.org/wikipedia/commons/thumb/4/4d/Cat_November_2010-1a.jpg/600px-Cat_November_2010-1a.jpg' -OutFile 'test_cat.jpg'"
+)
+
 :: Run with default test image or provided image
 if "%~1"=="" (
-    if not exist test_cat.jpg (
-        echo Downloading test image...
-        powershell -Command "Invoke-WebRequest -Uri 'https://upload.wikimedia.org/wikipedia/commons/thumb/4/4d/Cat_November_2010-1a.jpg/600px-Cat_November_2010-1a.jpg' -OutFile 'test_cat.jpg'"
-    )
     echo.
     echo Running inference on test_cat.jpg...
-    main.exe test_cat.jpg resnet18.onnx
+    main.exe test_cat.jpg
 ) else (
+    echo.
     echo Running inference on %~1...
-    main.exe "%~1" resnet18.onnx
+    main.exe "%~1"
 )
 
 echo.
