@@ -6,6 +6,19 @@ echo   ResNet Inference Engine - Build Script
 echo ========================================
 echo.
 
+:: Check for GPU flag
+set USE_CUDA_FLAG=OFF
+if /i "%1"=="--gpu" set USE_CUDA_FLAG=ON
+if /i "%1"=="-g" set USE_CUDA_FLAG=ON
+
+if "%USE_CUDA_FLAG%"=="ON" (
+    echo   Build Mode: GPU ^(CUDA^)
+) else (
+    echo   Build Mode: CPU only
+    echo   Use: build.bat --gpu for GPU build
+)
+echo.
+
 :: Navigate to project root directory
 cd /d "%~dp0.."
 
@@ -27,26 +40,19 @@ if exist .env (
 :: Convert forward slashes to backslashes for VS path
 set "VS_VCVARS_PATH=!VS_VCVARS_PATH:/=\!"
 
-:: Display loaded configuration
-echo     VS_VCVARS_PATH: !VS_VCVARS_PATH!
-echo     CMAKE_GENERATOR: !CMAKE_GENERATOR!
-echo     CMAKE_ARCHITECTURE: !CMAKE_ARCHITECTURE!
-echo.
-
 :: Set Visual Studio environment
 if exist "!VS_VCVARS_PATH!" (
     call "!VS_VCVARS_PATH!"
 ) else (
     echo ERROR: Cannot find vcvars64.bat at: !VS_VCVARS_PATH!
-    echo Please check your .env file.
     pause
     exit /b 1
 )
 
-:: Navigate back to project directory (vcvars may change dir)
+:: Navigate back to project directory
 cd /d "%~dp0.."
 
-:: Create build directory if not exists
+:: Create build directory
 if not exist build mkdir build
 cd build
 
@@ -57,13 +63,13 @@ if exist CMakeFiles rmdir /s /q CMakeFiles
 
 :: Configure with CMake
 echo [2/4] Configuring with CMake...
-cmake -G "!CMAKE_GENERATOR!" -A !CMAKE_ARCHITECTURE! ..
+cmake -G "!CMAKE_GENERATOR!" -A !CMAKE_ARCHITECTURE! -DUSE_CUDA=!USE_CUDA_FLAG! ..
 
 :: Build
 echo [3/4] Building...
 cmake --build . --config Release
 
-:: Copy model and test files
+:: Copy files
 echo.
 echo [4/4] Copying files...
 if exist "..\models\resnet18.onnx" copy "..\models\resnet18.onnx" "Release\" 2>nul
@@ -71,7 +77,11 @@ if exist "..\data\test_cat.jpg" copy "..\data\test_cat.jpg" "Release\" 2>nul
 
 echo.
 echo ========================================
-echo   Build Complete!
+if "%USE_CUDA_FLAG%"=="ON" (
+    echo   Build Complete! ^(GPU Mode^)
+) else (
+    echo   Build Complete! ^(CPU Mode^)
+)
 echo   Executable: %~dp0..\build\Release\main.exe
 echo ========================================
 echo.

@@ -1,19 +1,47 @@
 /**
  * @file inference.cpp
- * @brief ONNX Runtime inference engine implementation
+ * @brief ONNX Runtime inference engine implementation with GPU support
  */
 
 #include "inference.h"
+#include <iostream>
 #include <chrono>
 #include <algorithm>
 #include <stdexcept>
 
 namespace inference {
 
-Engine::Engine(const std::string& model_path, int num_threads)
-    : env_(ORT_LOGGING_LEVEL_WARNING, "ResNetInference") {
+Engine::Engine(const std::string& model_path, int num_threads, bool use_gpu)
+    : env_(ORT_LOGGING_LEVEL_WARNING, "ResNetInference")
+    , use_gpu_(false) {
     
     session_options_.SetIntraOpNumThreads(num_threads);
+    
+    // Configure GPU if requested
+    #ifdef USE_CUDA
+    if (use_gpu) {
+        try {
+            OrtCUDAProviderOptions cuda_options;
+            cuda_options.device_id = 0;
+            session_options_.AppendExecutionProvider_CUDA(cuda_options);
+            use_gpu_ = true;
+            std::cout << "    [GPU mode: CUDA enabled]\n";
+        } catch (const Ort::Exception& e) {
+            std::cerr << "    [GPU mode: Failed - " << e.what() << "]\n";
+            std::cerr << "    [Falling back to CPU]\n";
+            use_gpu_ = false;
+        }
+    }
+    #else
+    if (use_gpu) {
+        std::cerr << "    [GPU mode: Not compiled with CUDA support]\n";
+        std::cerr << "    [Rebuild with: cmake -DUSE_CUDA=ON ..]\n";
+    }
+    #endif
+    
+    if (!use_gpu_) {
+        std::cout << "    [CPU mode: " << num_threads << " threads]\n";
+    }
     
     // Convert path to wide string for Windows
     std::wstring model_path_w(model_path.begin(), model_path.end());

@@ -2,7 +2,7 @@
 
 /**
  * @file inference.h
- * @brief ONNX Runtime inference engine wrapper
+ * @brief ONNX Runtime inference engine wrapper with optional GPU acceleration
  */
 
 #include <string>
@@ -22,15 +22,19 @@ struct Result {
 
 /**
  * ONNX Runtime inference engine
+ * Supports both CPU and GPU (CUDA) execution
  */
 class Engine {
 public:
     /**
      * Constructor
      * @param model_path Path to ONNX model file
-     * @param num_threads Number of threads for inference (default: 4)
+     * @param num_threads Number of threads for CPU inference (default: 4)
+     * @param use_gpu Enable GPU acceleration if available (default: false)
      */
-    explicit Engine(const std::string& model_path, int num_threads = 4);
+    explicit Engine(const std::string& model_path, 
+                    int num_threads = 4,
+                    bool use_gpu = false);
     
     /**
      * Run inference on preprocessed input data
@@ -51,12 +55,18 @@ public:
      * Get model load time in milliseconds
      */
     long long get_load_time_ms() const { return load_time_ms_; }
+    
+    /**
+     * Check if GPU acceleration is enabled
+     */
+    bool is_using_gpu() const { return use_gpu_; }
 
 private:
     Ort::Env env_;
     Ort::SessionOptions session_options_;
     std::unique_ptr<Ort::Session> session_;
     long long load_time_ms_ = 0;
+    bool use_gpu_ = false;
     
     // Model input/output names
     static constexpr const char* INPUT_NAME = "input_tensor";
