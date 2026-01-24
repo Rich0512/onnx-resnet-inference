@@ -9,6 +9,8 @@
 #include <iostream>
 #include <filesystem>
 #include <chrono>
+#include <algorithm>
+#include <numeric>
 #include "inference.h"
 #include "preprocessor.h"
 #include "imagenet_labels.h"
@@ -26,6 +28,7 @@ struct Config {
     int top_k = 5;
     bool use_gpu = false;
     bool verbose = false;
+    bool benchmark = false;
 };
 
 void print_help(const std::string& program) {
@@ -60,6 +63,8 @@ Config parse_args(int argc, char* argv[]) {
             config.use_gpu = true;
         } else if (arg == "-v" || arg == "--verbose") {
             config.verbose = true;
+        } else if (arg == "-b" || arg == "--benchmark") {
+            config.benchmark = true;
         } else if (arg[0] != '-') {
             config.image_path = arg;
         }
@@ -117,15 +122,29 @@ int main(int argc, char* argv[]) {
         std::cout << "\n[5] Running inference...\n";
         engine.run(input_data);  // Warm-up
         
-        const int NUM_RUNS = 10;
-        auto start_infer = std::chrono::high_resolution_clock::now();
+        const int NUM_RUNS = config.benchmark ? 100 : 10;
+        std::vector<double> times;
         std::vector<float> scores;
+        
         for (int i = 0; i < NUM_RUNS; i++) {
+            auto start = std::chrono::high_resolution_clock::now();
             scores = engine.run(input_data);
+            auto end = std::chrono::high_resolution_clock::now();
+            double ms = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count() / 1000.0;
+            times.push_back(ms);
         }
-        auto end_infer = std::chrono::high_resolution_clock::now();
-        auto infer_time = std::chrono::duration_cast<std::chrono::microseconds>(end_infer - start_infer).count();
-        double avg_time = infer_time / 1000.0 / NUM_RUNS;
+        
+        double min_time = *std::min_element(times.begin(), times.end());
+        double max_time = *std::max_element(times.begin(), times.end());
+        double avg_time = std::accumulate(times.begin(), times.end(), 0.0) / NUM_RUNS;
+        
+        if (config.benchmark) {
+            std::cout << "    [Benchmark Mode]\n"
+                      << "    Runs: " << NUM_RUNS << "\n"
+                      << "    Min:  " << min_time << " ms\n"
+                      << "    Max:  " << max_time << " ms\n"
+                      << "    Avg:  " << avg_time << " ms\n";
+        }
         
         std::cout << "    Inference: " << avg_time << " ms (avg of " << NUM_RUNS << " runs)\n"
                   << "    Throughput: " << 1000.0 / avg_time << " FPS\n";

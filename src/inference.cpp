@@ -50,7 +50,7 @@ Engine::Engine(const std::string& model_path, int num_threads, bool use_gpu)
     auto start = std::chrono::high_resolution_clock::now();
     session_ = std::make_unique<Ort::Session>(env_, model_path_w.c_str(), session_options_);
     auto end = std::chrono::high_resolution_clock::now();
-    
+    std::cout << "[INFO] Model path: " << model_path << ", Threads: " << num_threads << ", GPU: " << use_gpu << ", Load time: " << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << " ms\n";
     load_time_ms_ = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
 }
 

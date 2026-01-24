@@ -4,10 +4,27 @@
  */
 
 #include "preprocessor.h"
+#include <stdexcept>
 
 namespace preprocessor {
 
 std::vector<float> preprocess(const cv::Mat& img) {
+    // Check if image is empty
+    if(img.empty()) {
+        throw std::runtime_error("Image is empty");
+    }
+
+    // Check if image size too small
+    if(img.rows < INPUT_SIZE || img.cols < INPUT_SIZE) {
+        throw std::runtime_error("Image too small: " + std::to_string(img.cols) + "x" + std::to_string(img.rows) + ", minimum 32x32");
+    }
+
+    // If there is a problem, throw an exception (throw std::invalid_argument(...))
+    if(img.channels() != 3) {
+        throw std::invalid_argument("Image must be BGR");
+    }
+
+
     // 1. Resize to 224x224
     cv::Mat resized;
     cv::resize(img, resized, cv::Size(INPUT_SIZE, INPUT_SIZE));
