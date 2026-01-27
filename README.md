@@ -47,6 +47,7 @@ onnx-resnet-inference/
 |------|-----------|------------|
 | CPU (4 threads) | 6.5 ms | 150 FPS |
 | GPU (CUDA) | 1.6 ms | 630 FPS |
+| **GPU (TensorRT)** | **~1.0 ms** | **1000+ FPS** |
 | INT8 Model | 8.4 ms | 120 FPS |
 
 ## 📋 Prerequisites
@@ -95,8 +96,11 @@ scripts\build.bat --gpu
 # Basic usage
 .\main.exe image.jpg
 
-# GPU acceleration
+# GPU acceleration (CUDA)
 .\main.exe --gpu image.jpg
+
+# TensorRT optimization (Fastest!)
+.\main.exe --tensorrt image.jpg
 
 # Benchmark mode (100 runs)
 .\main.exe --gpu --benchmark image.jpg

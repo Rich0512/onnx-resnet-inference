@@ -27,6 +27,7 @@ struct Config {
     std::string model_path = "resnet18.onnx";
     int top_k = 5;
     bool use_gpu = false;
+    bool use_tensorrt = false;
     bool verbose = false;
     bool benchmark = false;
 };
@@ -38,11 +39,13 @@ void print_help(const std::string& program) {
               << "  -m, --model PATH   Path to ONNX model (default: resnet18.onnx)\n"
               << "  -t, --top N        Show top N predictions (default: 5)\n"
               << "  -g, --gpu          Enable GPU acceleration (CUDA)\n"
+              << "  --tensorrt         Enable TensorRT optimization (requires GPU)\n"
+              << "  -b, --benchmark    Run benchmark mode (100 iterations)\n"
               << "  -v, --verbose      Show detailed output\n"
               << "\nExamples:\n"
               << "  " << program << " cat.jpg\n"
               << "  " << program << " --gpu cat.jpg\n"
-              << "  " << program << " --top 3 --gpu dog.jpg\n"
+              << "  " << program << " --tensorrt cat.jpg\n"
               << "  " << program << " -m custom.onnx image.jpg\n\n";
 }
 
@@ -65,6 +68,9 @@ Config parse_args(int argc, char* argv[]) {
             config.verbose = true;
         } else if (arg == "-b" || arg == "--benchmark") {
             config.benchmark = true;
+        } else if (arg == "--tensorrt") {
+            config.use_tensorrt = true;
+            config.use_gpu = true;  // TensorRT requires GPU
         } else if (arg[0] != '-') {
             config.image_path = arg;
         }
@@ -107,7 +113,7 @@ int main(int argc, char* argv[]) {
         
         // Initialize inference engine
         std::cout << "\n[3] Initializing ONNX Runtime...\n";
-        inference::Engine engine(config.model_path, 4, config.use_gpu);
+        inference::Engine engine(config.model_path, 4, config.use_gpu, config.use_tensorrt);
         std::cout << "    Model loaded in " << engine.get_load_time_ms() << " ms\n";
         
         // Preprocess image
@@ -163,7 +169,7 @@ int main(int argc, char* argv[]) {
         std::cout << "\n========================================\n"
                   << "   Performance Summary\n"
                   << "========================================\n"
-                  << "  Mode:        " << (engine.is_using_gpu() ? "GPU (CUDA)" : "CPU") << "\n"
+                  << "  Mode:        " << (engine.is_using_tensorrt() ? "GPU (TensorRT)" : (engine.is_using_gpu() ? "GPU (CUDA)" : "CPU")) << "\n"
                   << "  Model load:  " << engine.get_load_time_ms() << " ms\n"
                   << "  Preprocess:  " << prep_time / 1000.0 << " ms\n"
                   << "  Inference:   " << avg_time << " ms\n"

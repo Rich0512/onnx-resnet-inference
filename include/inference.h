@@ -31,10 +31,12 @@ public:
      * @param model_path Path to ONNX model file
      * @param num_threads Number of threads for CPU inference (default: 4)
      * @param use_gpu Enable GPU acceleration if available (default: false)
+     * @param use_tensorrt Enable TensorRT optimization (default: false)
      */
     explicit Engine(const std::string& model_path, 
                     int num_threads = 4,
-                    bool use_gpu = false);
+                    bool use_gpu = false,
+                    bool use_tensorrt = false);
     
     /**
      * Run inference on preprocessed input data
@@ -61,12 +63,18 @@ public:
      */
     bool is_using_gpu() const { return use_gpu_; }
 
+    /**
+     * Check if TensorRT optimization is enabled
+     */
+    bool is_using_tensorrt() const { return use_tensorrt_; }
+
 private:
     Ort::Env env_;
     Ort::SessionOptions session_options_;
     std::unique_ptr<Ort::Session> session_;
     long long load_time_ms_ = 0;
     bool use_gpu_ = false;
+    bool use_tensorrt_ = false;
     
     // Model input/output names
     static constexpr const char* INPUT_NAME = "input_tensor";

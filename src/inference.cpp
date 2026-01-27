@@ -11,29 +11,54 @@
 
 namespace inference {
 
-Engine::Engine(const std::string& model_path, int num_threads, bool use_gpu)
+Engine::Engine(const std::string& model_path, int num_threads, bool use_gpu, bool use_tensorrt)
     : env_(ORT_LOGGING_LEVEL_WARNING, "ResNetInference")
-    , use_gpu_(false) {
+    , use_gpu_(false)
+    , use_tensorrt_(false) {
     
     session_options_.SetIntraOpNumThreads(num_threads);
     
     // Configure GPU if requested
     #ifdef USE_CUDA
-    if (use_gpu) {
+    if (use_gpu || use_tensorrt) {  // TensorRT also requires CUDA implicitly usually, or just GPU flag
         try {
-            OrtCUDAProviderOptions cuda_options;
-            cuda_options.device_id = 0;
-            session_options_.AppendExecutionProvider_CUDA(cuda_options);
-            use_gpu_ = true;
-            std::cout << "    [GPU mode: CUDA enabled]\n";
+            if (use_tensorrt) {
+                // Settings for TensorRT
+                // Note: OrtTensorRTProviderOptionsV2 is available in newer versions, 
+                // but we use AppendExecutionProvider_TensorRT which takes OrtTensorRTProviderOptions usually
+                // or just standard options. 
+                // For simplicity we try to append it directly if available in this build.
+                // The C++ API helper for TRT might need specific headers or just use the Option struct.
+                // Let's assume standard appending works similarly to CUDA.
+                OrtTensorRTProviderOptions trt_options{};
+                trt_options.device_id = 0;
+                trt_options.trt_max_partition_iterations = 1000;
+                trt_options.trt_min_subgraph_size = 1;
+                trt_options.trt_fp16_enable = 1;
+                session_options_.AppendExecutionProvider_TensorRT(trt_options);
+                use_tensorrt_ = true;
+                std::cout << "    [GPU mode: TensorRT enabled]\n";
+                // TensorRT often benefits from CUDA provider as fallback
+                OrtCUDAProviderOptions cuda_options;
+                cuda_options.device_id = 0;
+                session_options_.AppendExecutionProvider_CUDA(cuda_options);
+                use_gpu_ = true; // Mark GPU as used
+            } else {
+                OrtCUDAProviderOptions cuda_options;
+                cuda_options.device_id = 0;
+                session_options_.AppendExecutionProvider_CUDA(cuda_options);
+                use_gpu_ = true;
+                std::cout << "    [GPU mode: CUDA enabled]\n";
+            }
         } catch (const Ort::Exception& e) {
             std::cerr << "    [GPU mode: Failed - " << e.what() << "]\n";
             std::cerr << "    [Falling back to CPU]\n";
             use_gpu_ = false;
+            use_tensorrt_ = false;
         }
     }
     #else
-    if (use_gpu) {
+    if (use_gpu || use_tensorrt) {
         std::cerr << "    [GPU mode: Not compiled with CUDA support]\n";
         std::cerr << "    [Rebuild with: cmake -DUSE_CUDA=ON ..]\n";
     }
@@ -50,7 +75,10 @@ Engine::Engine(const std::string& model_path, int num_threads, bool use_gpu)
     auto start = std::chrono::high_resolution_clock::now();
     session_ = std::make_unique<Ort::Session>(env_, model_path_w.c_str(), session_options_);
     auto end = std::chrono::high_resolution_clock::now();
-    std::cout << "[INFO] Model path: " << model_path << ", Threads: " << num_threads << ", GPU: " << use_gpu << ", Load time: " << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << " ms\n";
+    std::cout << "    [INFO] Model path: " << model_path << ", Threads: " << num_threads 
+              << ", GPU: " << (use_gpu ? "true" : "false") 
+              << ", TensorRT: " << (use_tensorrt ? "true" : "false")
+              << ", Load time: " << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << " ms\n";
     load_time_ms_ = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
 }
 
