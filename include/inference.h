@@ -8,7 +8,13 @@
 #include <string>
 #include <vector>
 #include <memory>
+#include <vector>
+#include <memory>
 #include <onnxruntime_cxx_api.h>
+
+#ifdef USE_CUDA
+#include <cuda_runtime_api.h>
+#endif
 
 namespace inference {
 
@@ -40,10 +46,36 @@ public:
     
     /**
      * Run inference on preprocessed input data
-     * @param input_data Preprocessed image data in CHW format
-     * @return Raw output scores (1000 classes for ImageNet)
+     * @param input_data Pointer to preprocessed data (CHW format)
+     * @param input_size Number of elements in input data
+     * @return Raw output scores
      */
-    std::vector<float> run(const std::vector<float>& input_data);
+    /**
+     * Run inference on preprocessed input data (Synchronous)
+     * @param input_data Pointer to preprocessed data (CHW format)
+     * @param input_size Number of elements in input data
+     * @return Raw output scores
+     */
+    std::vector<float> run(const float* input_data, size_t input_size);
+
+#ifdef USE_CUDA
+    /**
+     * Run inference asynchronously on a specific CUDA stream
+     * @param input_data Pointer to preprocessed data (CHW format)
+     * @param input_size Number of elements in input data
+     * @param stream CUDA Stream to run on
+     * @return Raw output scores (Note: Output transfer might still be sync unless optimized)
+     */
+    std::vector<float> run_async(const float* input_data, size_t input_size, cudaStream_t stream);
+#endif
+
+    /**
+     * Overload for std::vector convenience (works with any allocator if contiguous)
+     */
+    template<typename Alloc>
+    std::vector<float> run(const std::vector<float, Alloc>& input_data) {
+        return run(input_data.data(), input_data.size());
+    }
     
     /**
      * Get top-k predictions

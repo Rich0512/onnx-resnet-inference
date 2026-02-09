@@ -5,17 +5,18 @@
 
 #include "preprocessor.h"
 #include <stdexcept>
+#include <iostream>
 
 namespace preprocessor {
 
-std::vector<float> preprocess(const cv::Mat& img) {
+void preprocess_image(const cv::Mat& img, DataVector& input_data, int input_width, int input_height) {
     // Check if image is empty
     if(img.empty()) {
         throw std::runtime_error("Image is empty");
     }
 
     // Check if image size too small
-    if(img.rows < INPUT_SIZE || img.cols < INPUT_SIZE) {
+    if(img.rows < 32 || img.cols < 32) {
         throw std::runtime_error("Image too small: " + std::to_string(img.cols) + "x" + std::to_string(img.rows) + ", minimum 32x32");
     }
 
@@ -25,9 +26,13 @@ std::vector<float> preprocess(const cv::Mat& img) {
     }
 
 
-    // 1. Resize to 224x224
+    // 1. Resize
     cv::Mat resized;
-    cv::resize(img, resized, cv::Size(INPUT_SIZE, INPUT_SIZE));
+    if (img.cols != input_width || img.rows != input_height) {
+        cv::resize(img, resized, cv::Size(input_width, input_height));
+    } else {
+        resized = img;
+    }
     
     // 2. BGR -> RGB and convert to float [0, 1]
     cv::Mat rgb;
@@ -42,18 +47,16 @@ std::vector<float> preprocess(const cv::Mat& img) {
     channels[2] = (channels[2] - MEAN_B) / STD_B;  // B
     
     // 4. Convert HWC to CHW format
-    std::vector<float> input_data;
-    input_data.reserve(3 * INPUT_SIZE * INPUT_SIZE);
+    input_data.clear();
+    input_data.reserve(3 * input_width * input_height);
     
     for (int c = 0; c < 3; c++) {
-        for (int h = 0; h < INPUT_SIZE; h++) {
-            for (int w = 0; w < INPUT_SIZE; w++) {
+        for (int h = 0; h < input_height; h++) {
+            for (int w = 0; w < input_width; w++) {
                 input_data.push_back(channels[c].at<float>(h, w));
             }
         }
     }
-    
-    return input_data;
 }
 
 } // namespace preprocessor

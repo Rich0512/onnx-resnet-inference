@@ -23,12 +23,17 @@ set(ONNX_ROOT "${THIRD_PARTY_DIR}/onnxruntime")
 include_directories(${ONNX_ROOT}/include)
 link_directories(${ONNX_ROOT}/lib)
 
-# Add CUDA definition if enabled
+# Add CUDA definition and libraries if enabled
 if(USE_CUDA)
     message(STATUS "========================================")
     message(STATUS "  CUDA GPU Acceleration: ENABLED")
-    message(STATUS "========================================")
+    
+    # Find CUDA Toolkit
+    find_package(CUDAToolkit REQUIRED)
+    message(STATUS "  Found CUDA Toolkit: ${CUDAToolkit_VERSION}")
+    
     add_definitions(-DUSE_CUDA)
+    message(STATUS "========================================")
 else()
     message(STATUS "========================================")
     message(STATUS "  CUDA GPU Acceleration: DISABLED (CPU only)")
@@ -63,7 +68,11 @@ set(SOURCES
 add_executable(main ${SOURCES})
 
 # Link libraries
-target_link_libraries(main onnxruntime ${OpenCV_LIBS})
+if(USE_CUDA)
+    target_link_libraries(main onnxruntime ${OpenCV_LIBS} CUDA::cudart)
+else()
+    target_link_libraries(main onnxruntime ${OpenCV_LIBS})
+endif()
 
 # ============================================================================
 # Copy DLLs to output directory (Windows)

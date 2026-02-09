@@ -11,6 +11,13 @@
 #include <chrono>
 #include <algorithm>
 #include <numeric>
+#include <iostream>
+#include <filesystem>
+#include <chrono>
+#include <algorithm>
+#include <numeric>
+#include <thread>
+#include <future>
 #include "inference.h"
 #include "preprocessor.h"
 #include "imagenet_labels.h"
@@ -116,17 +123,20 @@ int main(int argc, char* argv[]) {
         inference::Engine engine(config.model_path, 4, config.use_gpu, config.use_tensorrt);
         std::cout << "    Model loaded in " << engine.get_load_time_ms() << " ms\n";
         
-        // Preprocess image
+        // Create reusable buffer for Pinned Memory
+        preprocessor::DataVector input_buffer;
+
+        // Preprocess image (first time)
         std::cout << "\n[4] Preprocessing image...\n";
         auto start_prep = std::chrono::high_resolution_clock::now();
-        auto input_data = preprocessor::preprocess(img);
+        preprocessor::preprocess_image(img, input_buffer, 224, 224);
         auto end_prep = std::chrono::high_resolution_clock::now();
         auto prep_time = std::chrono::duration_cast<std::chrono::microseconds>(end_prep - start_prep).count();
         std::cout << "    Done in " << prep_time / 1000.0 << " ms\n";
         
         // Run inference (with warm-up)
         std::cout << "\n[5] Running inference...\n";
-        engine.run(input_data);  // Warm-up
+        engine.run(input_buffer.data(), input_buffer.size());  // Warm-up
         
         const int NUM_RUNS = config.benchmark ? 100 : 10;
         std::vector<double> times;
@@ -134,7 +144,13 @@ int main(int argc, char* argv[]) {
         
         for (int i = 0; i < NUM_RUNS; i++) {
             auto start = std::chrono::high_resolution_clock::now();
-            scores = engine.run(input_data);
+            
+            // In a real application, we might preprocess different images here.
+            // For benchmark, we reuse the same preprocessed data.
+            // If we wanted to benchmark full pipeline:
+            // preprocessor::preprocess_image(img, input_buffer, 224, 224);
+
+            scores = engine.run(input_buffer.data(), input_buffer.size());
             auto end = std::chrono::high_resolution_clock::now();
             double ms = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count() / 1000.0;
             times.push_back(ms);
@@ -152,8 +168,64 @@ int main(int argc, char* argv[]) {
                       << "    Avg:  " << avg_time << " ms\n";
         }
         
+#ifdef USE_CUDA
+        // Multi-threaded Benchmark with CUDA Streams
+        if (config.use_gpu && config.benchmark) {
+            std::cout << "\n[Benchmark] Running Multi-threaded Async Inference (2 Streams)...\n";
+            
+            cudaStream_t stream1, stream2;
+            cudaStreamCreate(&stream1);
+            cudaStreamCreate(&stream2);
+            
+            int runs_per_thread = NUM_RUNS / 2;
+            
+            auto worker = [&](cudaStream_t stream) {
+                // Each thread needs its own buffer to be safe
+                preprocessor::DataVector local_buffer = input_buffer; 
+                std::vector<double> local_times;
+                
+                for(int i=0; i<runs_per_thread; ++i) {
+                    auto t1 = std::chrono::high_resolution_clock::now();
+                    engine.run_async(local_buffer.data(), local_buffer.size(), stream);
+                    auto t2 = std::chrono::high_resolution_clock::now();
+                    local_times.push_back(std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count() / 1000.0);
+                }
+                return local_times;
+            };
+            
+            auto start_multi = std::chrono::high_resolution_clock::now();
+            
+            auto f1 = std::async(std::launch::async, worker, stream1);
+            auto f2 = std::async(std::launch::async, worker, stream2);
+            
+            auto t1 = f1.get();
+            auto t2 = f2.get();
+            
+            auto end_multi = std::chrono::high_resolution_clock::now();
+            double total_time_ms = static_cast<double>(std::chrono::duration_cast<std::chrono::milliseconds>(end_multi - start_multi).count());
+            
+            std::cout << "    Total time for " << NUM_RUNS << " runs (2 threads): " << total_time_ms << " ms\n";
+            std::cout << "    Throughput: " << (1000.0 * NUM_RUNS) / total_time_ms << " FPS\n";
+            
+            // Cleanup matches
+            times.clear();
+            times.insert(times.end(), t1.begin(), t1.end());
+            times.insert(times.end(), t2.begin(), t2.end());
+            
+            cudaStreamDestroy(stream1);
+            cudaStreamDestroy(stream2);
+            
+            // Recalculate avg for display
+            avg_time = total_time_ms / NUM_RUNS; // Effective avg time per image
+        } else {
+             // Standard sequential benchmark
+             std::cout << "    Inference: " << avg_time << " ms (avg of " << NUM_RUNS << " runs)\n"
+                       << "    Throughput: " << 1000.0 / avg_time << " FPS\n";
+        }
+#else
         std::cout << "    Inference: " << avg_time << " ms (avg of " << NUM_RUNS << " runs)\n"
                   << "    Throughput: " << 1000.0 / avg_time << " FPS\n";
+#endif
         
         // Get results
         std::cout << "\n[6] Results:\n"

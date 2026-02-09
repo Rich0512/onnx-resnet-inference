@@ -6,24 +6,26 @@
  */
 
 #include <vector>
+#include <string> // Added
 #include <opencv2/opencv.hpp>
+#include "pinned_allocator.h" // Added
 
 namespace preprocessor {
 
+#ifdef USE_CUDA
+    using DataVector = std::vector<float, inference::PinnedAllocator<float>>;
+#else
+    using DataVector = std::vector<float>;
+#endif
+
 /**
- * Preprocess image for ResNet inference
- * 
- * Steps:
- * 1. Resize to 224x224
- * 2. Convert BGR to RGB
- * 3. Normalize to [0, 1]
- * 4. Apply ImageNet normalization
- * 5. Convert HWC to CHW format
- * 
- * @param img Input image (BGR format from OpenCV)
- * @return Preprocessed image data in CHW format
+ * Preprocess image with buffer reuse
+ * @param image Input OpenCV image
+ * @param output_buffer Buffer to store result (will be resized if needed)
+ * @param input_width Target width (default: 224)
+ * @param input_height Target height (default: 224)
  */
-std::vector<float> preprocess(const cv::Mat& img);
+void preprocess_image(const cv::Mat& image, DataVector& output_buffer, int input_width = 224, int input_height = 224);
 
 // ImageNet normalization constants
 constexpr float MEAN_R = 0.485f;

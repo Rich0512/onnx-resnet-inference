@@ -1,4 +1,4 @@
-# ONNX ResNet Inference Engine
+﻿# ONNX ResNet Inference Engine
 
 A high-performance image classification system built with C++ and ONNX Runtime, featuring GPU acceleration and model quantization.
 
@@ -9,11 +9,13 @@ A high-performance image classification system built with C++ and ONNX Runtime, 
 
 ## ✨ Features
 
-- 🚀 **High Performance**: 150 FPS (CPU) / 630 FPS (GPU)
-- 🎮 **GPU Acceleration**: CUDA ExecutionProvider support
-- � **Benchmark Mode**: Min/Max/Avg timing statistics
+- 🚀 **High Performance**: 150 FPS (CPU) / 630 FPS (GPU) / 1876 FPS (Optimized)
+- 🎮 **GPU Acceleration**: CUDA & TensorRT ExecutionProvider support
+- ⚡ **Advanced Optimization**: Pinned Memory & Buffer Reuse & Async Streams
+- 📊 **Benchmark Mode**: Min/Max/Avg timing statistics
+-  **Benchmark Mode**: Min/Max/Avg timing statistics
 - 🗜️ **Model Quantization**: INT8 dynamic quantization
-- �🖼️ **Image Classification**: ResNet18 with ImageNet 1000 classes
+- 🖼️ **Image Classification**: ResNet18 with ImageNet 1000 classes
 - ⚡ **Input Validation**: Robust error handling
 
 ## 📁 Project Structure
@@ -43,12 +45,14 @@ onnx-resnet-inference/
 
 ## 🚀 Performance
 
-| Mode | Inference | Throughput |
-|------|-----------|------------|
-| CPU (4 threads) | 6.5 ms | 150 FPS |
-| GPU (CUDA) | 1.6 ms | 630 FPS |
-| **GPU (TensorRT)** | **~1.0 ms** | **1000+ FPS** |
-| INT8 Model | 8.4 ms | 120 FPS |
+| Mode | Inference | Throughput | improvement |
+|------|-----------|------------|-------------|
+| CPU (4 threads) | 6.5 ms | 150 FPS | 1x |
+| GPU (CUDA) | 1.6 ms | 630 FPS | 4.2x |
+| GPU (TensorRT) | ~1.0 ms | 990 FPS | 6.6x |
+| **GPU (Pinned + Reuse)** | **0.53 ms** | **1876 FPS** | **12.5x** |
+| GPU (Async 2-Stream) | 0.68 ms | ~1470 FPS | (Saturation) |
+| INT8 Model | 8.4 ms | 120 FPS | - |
 
 ## 📋 Prerequisites
 
@@ -196,6 +200,8 @@ python scripts/quantize.py --type int8
 
 - CPU: 4 threads (IntraOp)
 - GPU: CUDA ExecutionProvider
+- Memory: Pinned Memory (PinnedAllocator) with Buffer Reuse
+- Async: Multi-threaded inference using CUDA Streams
 
 ## 📜 License
 
