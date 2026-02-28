@@ -13,8 +13,8 @@ graph TD
     classDef memory fill:#fff3e0,stroke:#ff9800,stroke-width:2px;
     
     subgraph "External"
-        U[User / Command Line]
-        IMG[Image File (JPG/PNG)]
+        U["User / Command Line"]
+        IMG["Image File (JPG/PNG)"]
     end
 
     subgraph "Main Controller (main.cpp)"
@@ -33,7 +33,7 @@ graph TD
     end
 
     subgraph "Memory Bank (pinned_allocator.h)"
-        BUF[(DataVector<br>Pinned Memory)]:::memory
+        BUF[("DataVector<br>Pinned Memory")]:::memory
         P4 -- "3. Write directly to" --> BUF
         note1> "Buffer Reuse: Created once by Main,<br>Reused for every image to save 1ms"
     end
@@ -49,7 +49,7 @@ graph TD
             GPU -- "7. Compute ResNet18" --> GPU
         end
         
-        GPU -- "8. Return 1000 Scores" --> OUT[(Scores Array)]:::memory
+        GPU -- "8. Return 1000 Scores" --> OUT[("Scores Array")]:::memory
     end
 
     M -- "9. Map Scores to Labels" --> L[Label Decoder]:::cpu
