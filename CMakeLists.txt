@@ -54,55 +54,83 @@ include_directories(${OpenCV_INCLUDE_DIRS})
 include_directories(${INCLUDE_DIR})
 
 # ============================================================================
+# Python & pybind11
+# ============================================================================
+find_package(Python3 COMPONENTS Interpreter Development REQUIRED)
+
+include(FetchContent)
+FetchContent_Declare(
+  pybind11
+  GIT_REPOSITORY https://github.com/pybind/pybind11.git
+  GIT_TAG        v2.11.1
+)
+FetchContent_MakeAvailable(pybind11)
+
+# ============================================================================
 # Source files
 # ============================================================================
-set(SOURCES
-    ${SRC_DIR}/main.cpp
+set(LIB_SOURCES
     ${SRC_DIR}/preprocessor.cpp
     ${SRC_DIR}/inference.cpp
 )
 
+set(SOURCES
+    ${SRC_DIR}/main.cpp
+    ${LIB_SOURCES}
+)
+
 # ============================================================================
-# Build executable
+# Build executable & Python Module
 # ============================================================================
 add_executable(main ${SOURCES})
 
+# Create Python extension module
+pybind11_add_module(resnet_engine MODULE ${LIB_SOURCES} ${SRC_DIR}/python_bindings.cpp)
+
 # Link libraries
 if(USE_CUDA)
-    target_link_libraries(main onnxruntime ${OpenCV_LIBS} CUDA::cudart)
+    target_link_libraries(main PRIVATE onnxruntime ${OpenCV_LIBS} CUDA::cudart)
+    target_link_libraries(resnet_engine PRIVATE onnxruntime ${OpenCV_LIBS} CUDA::cudart)
 else()
-    target_link_libraries(main onnxruntime ${OpenCV_LIBS})
+    target_link_libraries(main PRIVATE onnxruntime ${OpenCV_LIBS})
+    target_link_libraries(resnet_engine PRIVATE onnxruntime ${OpenCV_LIBS})
 endif()
 
 # ============================================================================
 # Copy DLLs to output directory (Windows)
 # ============================================================================
 if(WIN32)
-    # Core ONNX Runtime DLL
-    add_custom_command(TARGET main POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        "${ONNX_ROOT}/lib/onnxruntime.dll"
-        $<TARGET_FILE_DIR:main>
-    )
-    
-    # OpenCV DLL
-    add_custom_command(TARGET main POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        "${THIRD_PARTY_DIR}/opencv/build/x64/vc16/bin/opencv_world4100.dll"
-        $<TARGET_FILE_DIR:main>
-    )
-    
-    # CUDA DLLs (only if CUDA enabled)
-    if(USE_CUDA)
-        add_custom_command(TARGET main POST_BUILD
+    # Define a helper function to avoid repeating copy commands
+    function(copy_dlls_to_target target_name)
+        # Core ONNX Runtime DLL
+        add_custom_command(TARGET ${target_name} POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${ONNX_ROOT}/lib/onnxruntime_providers_shared.dll"
-            $<TARGET_FILE_DIR:main>
+            "${ONNX_ROOT}/lib/onnxruntime.dll"
+            $<TARGET_FILE_DIR:${target_name}>
         )
-        add_custom_command(TARGET main POST_BUILD
+        
+        # OpenCV DLL 
+        add_custom_command(TARGET ${target_name} POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${ONNX_ROOT}/lib/onnxruntime_providers_cuda.dll"
-            $<TARGET_FILE_DIR:main>
+            "${THIRD_PARTY_DIR}/opencv/build/x64/vc16/bin/opencv_world4100.dll"
+            $<TARGET_FILE_DIR:${target_name}>
         )
-    endif()
+        
+        # CUDA DLLs (only if CUDA enabled)
+        if(USE_CUDA)
+            add_custom_command(TARGET ${target_name} POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${ONNX_ROOT}/lib/onnxruntime_providers_shared.dll"
+                $<TARGET_FILE_DIR:${target_name}>
+            )
+            add_custom_command(TARGET ${target_name} POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${ONNX_ROOT}/lib/onnxruntime_providers_cuda.dll"
+                $<TARGET_FILE_DIR:${target_name}>
+            )
+        endif()
+    endfunction()
+
+    copy_dlls_to_target(main)
+    copy_dlls_to_target(resnet_engine)
 endif()
