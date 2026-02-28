@@ -35,7 +35,7 @@ graph TD
     subgraph "Memory Bank (pinned_allocator.h)"
         BUF[("DataVector<br>Pinned Memory")]:::memory
         P4 -- "3. Write directly to" --> BUF
-        note1> "Buffer Reuse: Created once by Main,<br>Reused for every image to save 1ms"
+        note1> "Buffer Reuse: Created once by Main,<br>Reused for every image to save 1ms"]
     end
 
     subgraph "Inference Engine (inference.cpp)"
