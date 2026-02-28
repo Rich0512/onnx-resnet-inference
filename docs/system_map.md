@@ -33,7 +33,7 @@ graph TD
     end
 
     subgraph "Memory Bank (pinned_allocator.h)"
-        BUF[("DataVector<br>Pinned Memory"):::memory
+        BUF[("DataVector<br>Pinned Memory")]:::memory
         P4 -- "3. Write directly to" --> BUF
         %% Fixed Note Syntax Below
         note1>Buffer Reuse: Created once by Main,<br>Reused for every image to save 1ms]
