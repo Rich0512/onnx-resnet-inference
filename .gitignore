@@ -23,3 +23,6 @@ data/
 *.nsys-rep
 *.sqlite
 *.qdstrm
+
+# Installers
+vs_BuildTools.exe
