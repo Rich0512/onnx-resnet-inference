@@ -34,28 +34,38 @@ void preprocess_image(const cv::Mat& img, DataVector& input_data, int input_widt
         resized = img;
     }
     
-    // 2. BGR -> RGB and convert to float [0, 1]
-    cv::Mat rgb;
-    cv::cvtColor(resized, rgb, cv::COLOR_BGR2RGB);
-    rgb.convertTo(rgb, CV_32F, 1.0f / 255.0f);
+    // 2. Fused Preprocessing (Operator Fusion + Single-Pass)
+    // Precompute scale and bias constants: out = pixel * scale + bias
+    // Equivalent to: (pixel / 255.0 - mean) / std
+    constexpr float scale_r = 1.0f / (255.0f * STD_R);
+    constexpr float bias_r  = -MEAN_R / STD_R;
+    constexpr float scale_g = 1.0f / (255.0f * STD_G);
+    constexpr float bias_g  = -MEAN_G / STD_G;
+    constexpr float scale_b = 1.0f / (255.0f * STD_B);
+    constexpr float bias_b  = -MEAN_B / STD_B;
+
+    const int total_pixels = input_width * input_height;
     
-    // 3. ImageNet normalization: (pixel - mean) / std
-    cv::Mat channels[3];
-    cv::split(rgb, channels);
-    channels[0] = (channels[0] - MEAN_R) / STD_R;  // R
-    channels[1] = (channels[1] - MEAN_G) / STD_G;  // G
-    channels[2] = (channels[2] - MEAN_B) / STD_B;  // B
-    
-    // 4. Convert HWC to CHW format
-    input_data.clear();
-    input_data.reserve(3 * input_width * input_height);
-    
-    for (int c = 0; c < 3; c++) {
-        for (int h = 0; h < input_height; h++) {
-            for (int w = 0; w < input_width; w++) {
-                input_data.push_back(channels[c].at<float>(h, w));
-            }
-        }
+    // Ensure output buffer has exact size (reusing allocated Pinned memory)
+    input_data.resize(3 * total_pixels);
+
+    // Get direct raw pointers for each channel in the destination CHW buffer
+    float* r_ptr = input_data.data();
+    float* g_ptr = r_ptr + total_pixels;
+    float* b_ptr = g_ptr + total_pixels;
+
+    // Single-pass traversal: OpenCV resized image is continuous BGR
+    const uint8_t* src_ptr = resized.data;
+
+    // Process all pixels sequentially: cache-friendly and easily auto-vectorized
+    for (int i = 0; i < total_pixels; ++i) {
+        uint8_t b = *src_ptr++;
+        uint8_t g = *src_ptr++;
+        uint8_t r = *src_ptr++;
+
+        *r_ptr++ = static_cast<float>(r) * scale_r + bias_r;
+        *g_ptr++ = static_cast<float>(g) * scale_g + bias_g;
+        *b_ptr++ = static_cast<float>(b) * scale_b + bias_b;
     }
 }
 

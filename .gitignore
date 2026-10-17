@@ -18,3 +18,8 @@ data/
 *.exe
 *.dll
 *.pdb
+
+# Profiling reports
+*.nsys-rep
+*.sqlite
+*.qdstrm
