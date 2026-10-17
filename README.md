@@ -1,207 +1,141 @@
-﻿# ONNX ResNet Inference Engine
+# ONNX ResNet Inference Engine
 
-A high-performance image classification system built with C++ and ONNX Runtime, featuring GPU acceleration and model quantization.
+A high-performance image classification system built with C++ and ONNX Runtime, featuring GPU acceleration, hardware timeline profiling, and operator-fused preprocessing.
 
 ![C++](https://img.shields.io/badge/C++-17-blue.svg)
 ![ONNX Runtime](https://img.shields.io/badge/ONNX%20Runtime-1.23-green.svg)
 ![OpenCV](https://img.shields.io/badge/OpenCV-4.10-orange.svg)
 ![CUDA](https://img.shields.io/badge/CUDA-12.6-76B900.svg)
+![Nsight Systems](https://img.shields.io/badge/Nsight%20Systems-2024.5-76B900.svg)
 
 ## ✨ Features
 
-- 🚀 **High Performance**: 150 FPS (CPU) / 630 FPS (GPU) / 1876 FPS (Optimized)
-- 🎮 **GPU Acceleration**: CUDA & TensorRT ExecutionProvider support
-- ⚡ **Advanced Optimization**: Pinned Memory & Buffer Reuse & Async Streams
-- 📊 **Benchmark Mode**: Min/Max/Avg timing statistics
--  **Benchmark Mode**: Min/Max/Avg timing statistics
-- 🗜️ **Model Quantization**: INT8 dynamic quantization
-- 🖼️ **Image Classification**: ResNet18 with ImageNet 1000 classes
-- ⚡ **Input Validation**: Robust error handling
+- 🚀 **High Performance**: End-to-end low-latency inference with sub-millisecond preprocessing
+- 🎮 **GPU Acceleration**: CUDA & TensorRT ExecutionProvider with multi-stream async pipeline
+- ⚡ **Advanced Memory Management**: Zero-Copy Pinned Memory Allocator (`cudaHostAlloc`) & Buffer Reuse
+- 🔬 **Hardware-Level Timeline Profiling**: Validated with **NVIDIA Nsight Systems (`nsys`)** for true computation/communication overlap
+- 🛠️ **Operator-Fused Preprocessor**: Single-pass traversal, FMA arithmetic, and zero dynamic memory allocations
+- 📊 **Benchmark Mode**: Comprehensive Min/Max/Avg/FPS timing statistics
+- 🗜️ **Model Quantization**: INT8 dynamic quantization support
+
+---
+
+## 📚 Deep Dive Technical Notes (學習優化專題)
+
+本專案對標 AI Compiler / AI Systems 職缺之底層核心觀念，沉澱了完整系統調優技術筆記：
+
+| 專題文件 | 核心技術領域 | 涵蓋重點 |
+| :--- | :--- | :--- |
+| 📖 [**Station 1: Runtime 系統架構與記憶體管理**](docs/station1_runtime_memory_notes.md) | **Memory & HW-SW Interface** | • Paging vs. Pinned Memory (`cudaHostAlloc`) 原理<br>• GPU DMA 實體位址直抽與 Zero-Copy Tensor (`Ort::Value`)<br>• RAII PinnedAllocator 與多 CUDA Streams 非同步佇列 |
+| 🔬 [**Station 2: Nsight Systems 硬體時間軸剖析**](docs/station2_nsight_systems_notes.md) | **Timeline Profiling & Overlap** | • 拒絕 Wall-Clock 盲測，以 CUPTI 微秒時間軸實證<br>• Copy Engine (PCIe) 與 Compute Engine (Tensor Core) 真重疊<br>• 抓包 `nchwToNhwcKernel` (26.8% 開銷) 與 CPU 瓶頸定位 |
+| ⚡ [**Station 3: CPU 前處理算子融合極限優化**](docs/station3_simd_preprocessor_notes.md) | **Operator Fusion & Cache Locality** | • 將 5 次記憶體進出融合成單次走訪 (Single-Pass)<br>• 徹底消滅暫存 `cv::Mat` (0 Heap Allocation)<br>• `constexpr` + 硬體 FMA 單週期指令 (`x * scale + bias`) |
+
+---
+
+## 🚀 Performance
+
+### 1. End-to-End Pipeline Latency
+
+| 階段 / 模式 | 優化前 (Baseline) | 優化後 (Optimized) | 改善幅度 |
+| :--- | :--- | :--- | :--- |
+| **CPU 影像前處理** | 4.36 ms (OpenCV 多步驟) | **0.24 ms** (算子融合單次走訪) | 🚀 **18.2x 狂飆** |
+| **GPU 推論 (CUDA FP32)** | 1.60 ms | **1.32 ms** | 1.2x |
+| **GPU 推論 (Pinned + Reuse)** | - | **0.53 ms** | **12.5x** |
+| **多 Stream 非同步吞吐量** | 150 FPS (CPU) | **760+ FPS** (Dual-Stream Pipeline) | **5.1x** |
+
+### 2. Model Modes Comparison
+
+| Mode | Inference | Throughput | Improvement |
+|------|-----------|------------|-------------|
+| CPU (4 threads) | 6.5 ms | 150 FPS | 1x |
+| GPU (CUDA) | 1.32 ms | 760 FPS | 5.1x |
+| GPU (TensorRT) | ~1.0 ms | 990 FPS | 6.6x |
+| **GPU (Pinned + Reuse)** | **0.53 ms** | **1876 FPS** | **12.5x** |
+| INT8 Model | 8.4 ms | 120 FPS | - |
+
+---
 
 ## 📁 Project Structure
 
 ```
 onnx-resnet-inference/
 ├── src/
-│   ├── main.cpp           # Entry point + CLI
-│   ├── inference.cpp      # ONNX Runtime engine
-│   └── preprocessor.cpp   # Image preprocessing
+│   ├── main.cpp           # Entry point + CLI benchmark
+│   ├── inference.cpp      # ONNX Runtime engine (CUDA / Streams)
+│   └── preprocessor.cpp   # Operator-fused image preprocessing
 ├── include/
 │   ├── inference.h
+│   ├── pinned_allocator.h # Custom CUDA Pinned Memory STL Allocator
 │   ├── preprocessor.h
 │   └── imagenet_labels.h
+├── docs/                  # In-depth architectural & profiling notes
+│   ├── station1_runtime_memory_notes.md
+│   ├── station2_nsight_systems_notes.md
+│   └── station3_simd_preprocessor_notes.md
 ├── scripts/
-│   ├── build.bat          # Build script (CPU/GPU)
-│   ├── run.bat            # Run script
-│   ├── model.py           # Generate ONNX model
-│   └── quantize.py        # INT8 quantization
+│   ├── build.bat          # One-click build script (MSVC / CUDA)
+│   ├── run.bat            # Inference launch script
+│   ├── model.py           # PyTorch to ONNX exporter
+│   └── quantize.py        # INT8 quantization script
 ├── models/
 │   └── resnet18.onnx
-├── third_party/
-│   ├── onnxruntime/
-│   └── opencv/
 └── CMakeLists.txt
 ```
 
-## 🚀 Performance
-
-| Mode | Inference | Throughput | improvement |
-|------|-----------|------------|-------------|
-| CPU (4 threads) | 6.5 ms | 150 FPS | 1x |
-| GPU (CUDA) | 1.6 ms | 630 FPS | 4.2x |
-| GPU (TensorRT) | ~1.0 ms | 990 FPS | 6.6x |
-| **GPU (Pinned + Reuse)** | **0.53 ms** | **1876 FPS** | **12.5x** |
-| GPU (Async 2-Stream) | 0.68 ms | ~1470 FPS | (Saturation) |
-| INT8 Model | 8.4 ms | 120 FPS | - |
+---
 
 ## 📋 Prerequisites
 
-- Windows 11
-- Visual Studio 2022 Build Tools
+- Windows 10 / 11
+- Visual Studio 2022 (with C++ Desktop Development)
 - CMake 3.10+
-- CUDA 12.x + cuDNN 9.x (for GPU)
+- CUDA Toolkit 12.x + cuDNN 9.x
+- NVIDIA Nsight Systems 2024.x (Optional, for timeline profiling)
 
-## 🔧 Installation
+---
 
-### 1. Clone the repository
+## 🔧 Build & Run
 
-```bash
-git clone https://github.com/Rich0512/onnx-resnet-inference.git
-cd onnx-resnet-inference
-```
-
-### 2. Download dependencies
-
-| Library | Download | Location |
-|---------|----------|----------|
-| ONNX Runtime GPU | [Releases](https://github.com/microsoft/onnxruntime/releases) | `third_party/onnxruntime` |
-| OpenCV | [Releases](https://opencv.org/releases/) | `third_party/opencv` |
-
-### 3. Generate model
+### 1. Build
 
 ```bash
-python scripts/model.py
-move resnet18.onnx models/
+# GPU version (Recommended)
+.\scripts\build.bat --gpu
+
+# CPU-only version
+.\scripts\build.bat
 ```
 
-### 4. Build
+### 2. Run Inference & Benchmark
 
 ```bash
-# CPU version
-scripts\build.bat
+cd build\Release
 
-# GPU version
-scripts\build.bat --gpu
+# Run inference on test image with GPU benchmark
+.\main.exe --gpu -b test_cat.jpg
+
+# Run with TensorRT acceleration
+.\main.exe --tensorrt test_cat.jpg
 ```
 
-## 📖 Usage
+---
 
-```bash
-# Basic usage
-.\main.exe image.jpg
+## 🔬 Hardware Timeline Profiling (Nsight Systems)
 
-# GPU acceleration (CUDA)
-.\main.exe --gpu image.jpg
+To capture hardware execution traces with CUDA streams and memory transfers:
 
-# TensorRT optimization (Fastest!)
-.\main.exe --tensorrt image.jpg
+```powershell
+& "C:\Program Files\NVIDIA Corporation\Nsight Systems 2024.5.1\target-windows-x64\nsys.exe" profile `
+    -t cuda,nvtx `
+    -o profile_run `
+    --force-overwrite true `
+    .\build\Release\main.exe --gpu -b test_cat.jpg
 
-# Benchmark mode (100 runs)
-.\main.exe --gpu --benchmark image.jpg
-
-# Custom model
-.\main.exe -m custom.onnx image.jpg
-
-# Show help
-.\main.exe --help
+# Open timeline in GUI
+& "C:\Program Files\NVIDIA Corporation\Nsight Systems 2024.5.1\host-windows-x64\nsys-ui.exe" profile_run.nsys-rep
 ```
 
-### Command Line Options
-
-| Option | Description |
-|--------|-------------|
-| `-h, --help` | Show help message |
-| `-g, --gpu` | Enable GPU acceleration |
-| `-b, --benchmark` | Run 100 iterations with statistics |
-| `-m, --model PATH` | Specify ONNX model path |
-| `-t, --top N` | Show top N predictions |
-
-### Example Output
-
-```
-========================================
-   ResNet Inference Engine (C++)
-========================================
-
-[1] Validating files...
-    Image: test_cat.jpg
-    Model: resnet18.onnx
-
-[2] Loading image...
-    Size: 600x801 pixels
-
-[3] Initializing ONNX Runtime...
-    [GPU mode: CUDA enabled]
-    Model loaded in 75 ms
-
-[4] Preprocessing image...
-    Done in 0.7 ms
-
-[5] Running inference...
-    [Benchmark Mode]
-    Runs: 100
-    Min:  1.5 ms
-    Max:  2.8 ms
-    Avg:  1.7 ms
-    Throughput: 591 FPS
-
-[6] Results:
-    Top-5 Predictions:
-      1. lynx (score: 13.84)
-      2. tiger cat (score: 13.11)
-      3. tabby cat (score: 12.82)
-
-========================================
-   Performance Summary
-========================================
-  Mode:        GPU (CUDA)
-  Model load:  75 ms
-  Preprocess:  0.7 ms
-  Inference:   1.7 ms
-========================================
-```
-
-## 🗜️ Model Quantization
-
-```bash
-# Create INT8 quantized model
-python scripts/quantize.py --type int8
-
-# Use quantized model
-.\main.exe -m resnet18_int8.onnx image.jpg
-```
-
-| Model | Size | Notes |
-|-------|------|-------|
-| FP32 | 44.6 MB | Original |
-| INT8 | 11.2 MB | 75% smaller |
-
-## 🔬 Technical Details
-
-### Image Preprocessing Pipeline
-
-1. Resize to 224×224
-2. BGR → RGB conversion
-3. Normalize [0,255] → [0,1]
-4. ImageNet standardization (mean/std)
-5. HWC → CHW format conversion
-
-### ONNX Runtime Configuration
-
-- CPU: 4 threads (IntraOp)
-- GPU: CUDA ExecutionProvider
-- Memory: Pinned Memory (PinnedAllocator) with Buffer Reuse
-- Async: Multi-threaded inference using CUDA Streams
+---
 
 ## 📜 License
 
