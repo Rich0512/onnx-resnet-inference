@@ -74,6 +74,7 @@ echo.
 echo [4/4] Copying files...
 if exist "..\models\resnet18.onnx" copy "..\models\resnet18.onnx" "Release\" 2>nul
 if exist "..\data\test_cat.jpg" copy "..\data\test_cat.jpg" "Release\" 2>nul
+if exist "..\models\resnet18_native_fp16.engine" copy "..\models\resnet18_native_fp16.engine" "Release\" 2>nul
 
 echo.
 echo ========================================
@@ -85,6 +86,6 @@ if "%USE_CUDA_FLAG%"=="ON" (
 echo   Executable: %~dp0..\build\Release\main.exe
 echo ========================================
 echo.
-pause
+:: pause
 
 endlocal

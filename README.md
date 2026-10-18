@@ -30,6 +30,7 @@ A high-performance image classification system built with C++ and ONNX Runtime, 
 | 🔬 [**Station 2: Nsight Systems 硬體時間軸剖析**](docs/station2_nsight_systems_notes.md) | **Timeline Profiling & Overlap** | • 拒絕 Wall-Clock 盲測，以 CUPTI 微秒時間軸實證<br>• Copy Engine (PCIe) 與 Compute Engine (Tensor Core) 真重疊<br>• 抓包 `nchwToNhwcKernel` (26.8% 開銷) 與 CPU 瓶頸定位 |
 | ⚡ [**Station 3: CPU 前處理算子融合極限優化**](docs/station3_simd_preprocessor_notes.md) | **Operator Fusion & Cache Locality** | • 將 5 次記憶體進出融合成單次走訪 (Single-Pass)<br>• 徹底消滅暫存 `cv::Mat` (0 Heap Allocation)<br>• `constexpr` + 硬體 FMA 單週期指令 (`x * scale + bias`) |
 | 🚀 [**Station 4: AI Compiler 與 TensorRT 落地實戰**](docs/station4_tensorrt_compiler_notes.md) | **Engine Serialization & FP16** | • Kernel Fusion 與硬體 Auto-Tuning 機制<br>• Engine 序列化快取，啟動時間 21s ➔ 399ms (加速 54x)<br>• FP16 半精度加速，突破 2000+ FPS 大關 (0.49 ms) |
+| 🏎️ [**Station 5: 100% 純 C++ 原生 TensorRT 引擎**](docs/station5_native_tensorrt_notes.md) | **Native C++ API & Zero Overhead** | • 擺脫 ONNX Runtime 與 Python 包裝，純 C++ 原生引擎<br>• `IRuntime` ➔ `ICudaEngine` ➔ `IExecutionContext` ➔ `enqueueV3`<br>• 零調度開銷，延遲壓至 **0.39 ms (2516+ FPS)** |
 
 ---
 
@@ -41,7 +42,8 @@ A high-performance image classification system built with C++ and ONNX Runtime, 
 | :--- | :--- | :--- | :--- |
 | **CPU 影像前處理** | 4.36 ms (OpenCV 多步驟) | **0.23 ms** (算子融合單次走訪) | 🚀 **18.9x 狂飆** |
 | **GPU 推論 (CUDA FP32)** | 1.60 ms | **1.32 ms** | 1.2x |
-| **GPU 推論 (TensorRT FP16)** | - | **0.49 ms** | 🚀 **突破 2,000 FPS！** |
+| **GPU 推論 (ORT-TRT FP16)** | - | **0.49 ms** | 🚀 **突破 2,000 FPS！** |
+| **GPU 推論 (Native TensorRT 10 Pure C++)** | - | **0.39 ms** | 🚀 **突破 2,500 FPS (極致)** |
 | **多 Stream 非同步吞吐量** | 150 FPS (CPU) | **760+ FPS** (Dual-Stream Pipeline) | **5.1x** |
 
 ### 2. Model Modes Comparison
@@ -50,7 +52,8 @@ A high-performance image classification system built with C++ and ONNX Runtime, 
 |------|-----------|------------|-------------|
 | CPU (4 threads) | 6.5 ms | 150 FPS | 1x |
 | GPU (CUDA FP32) | 1.32 ms | 760 FPS | 5.1x |
-| **GPU (TensorRT FP16 + Engine Cache)** | **0.49 ms** | **2036 FPS** | 🚀 **13.5x (巔峰極限)** |
+| GPU (TensorRT FP16 + Engine Cache) | 0.49 ms | 2036 FPS | 13.5x |
+| **GPU (Native TensorRT 10 Pure C++)** | **0.39 ms** | **2516 FPS** | 🚀 **16.6x (極限吞吐)** |
 | INT8 Model | 8.4 ms | 120 FPS | - |
 
 ---

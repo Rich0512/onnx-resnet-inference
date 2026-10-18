@@ -87,10 +87,25 @@ add_executable(main ${SOURCES})
 # Create Python extension module
 pybind11_add_module(resnet_engine MODULE ${LIB_SOURCES} ${SRC_DIR}/python_bindings.cpp)
 
+# ============================================================================
+# TensorRT (Native C++ API)
+# ============================================================================
+include_directories(${THIRD_PARTY_DIR}/tensorrt/include)
+link_directories(${THIRD_PARTY_DIR})
+
 # Link libraries
 if(USE_CUDA)
     target_link_libraries(main PRIVATE onnxruntime ${OpenCV_LIBS} CUDA::cudart)
     target_link_libraries(resnet_engine PRIVATE onnxruntime ${OpenCV_LIBS} CUDA::cudart)
+
+    # Native TensorRT 10 Pure C++ Executable (Option B)
+    set(TRT_SOURCES
+        ${SRC_DIR}/main_trt.cpp
+        ${SRC_DIR}/trt_inference.cpp
+        ${SRC_DIR}/preprocessor.cpp
+    )
+    add_executable(main_trt ${TRT_SOURCES})
+    target_link_libraries(main_trt PRIVATE "${THIRD_PARTY_DIR}/nvinfer_10.lib" ${OpenCV_LIBS} CUDA::cudart)
 else()
     target_link_libraries(main PRIVATE onnxruntime ${OpenCV_LIBS})
     target_link_libraries(resnet_engine PRIVATE onnxruntime ${OpenCV_LIBS})
@@ -133,4 +148,7 @@ if(WIN32)
 
     copy_dlls_to_target(main)
     copy_dlls_to_target(resnet_engine)
+    if(USE_CUDA)
+        copy_dlls_to_target(main_trt)
+    endif()
 endif()
