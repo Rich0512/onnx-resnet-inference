@@ -8,6 +8,7 @@
 #include <chrono>
 #include <algorithm>
 #include <stdexcept>
+#include <filesystem>
 
 #ifdef USE_CUDA
 #include <cuda_runtime.h>
@@ -27,18 +28,17 @@ Engine::Engine(const std::string& model_path, int num_threads, bool use_gpu, boo
     if (use_gpu || use_tensorrt) {  // TensorRT also requires CUDA implicitly usually, or just GPU flag
         try {
             if (use_tensorrt) {
+                // Ensure TensorRT cache directory exists
+                std::filesystem::create_directories("./trt_cache");
+
                 // Settings for TensorRT
-                // Note: OrtTensorRTProviderOptionsV2 is available in newer versions, 
-                // but we use AppendExecutionProvider_TensorRT which takes OrtTensorRTProviderOptions usually
-                // or just standard options. 
-                // For simplicity we try to append it directly if available in this build.
-                // The C++ API helper for TRT might need specific headers or just use the Option struct.
-                // Let's assume standard appending works similarly to CUDA.
                 OrtTensorRTProviderOptions trt_options{};
                 trt_options.device_id = 0;
                 trt_options.trt_max_partition_iterations = 1000;
                 trt_options.trt_min_subgraph_size = 1;
                 trt_options.trt_fp16_enable = 1;
+                trt_options.trt_engine_cache_enable = 1;
+                trt_options.trt_engine_cache_path = "./trt_cache";
                 session_options_.AppendExecutionProvider_TensorRT(trt_options);
                 use_tensorrt_ = true;
                 std::cout << "    [GPU mode: TensorRT enabled]\n";

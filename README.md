@@ -29,6 +29,7 @@ A high-performance image classification system built with C++ and ONNX Runtime, 
 | 📖 [**Station 1: Runtime 系統架構與記憶體管理**](docs/station1_runtime_memory_notes.md) | **Memory & HW-SW Interface** | • Paging vs. Pinned Memory (`cudaHostAlloc`) 原理<br>• GPU DMA 實體位址直抽與 Zero-Copy Tensor (`Ort::Value`)<br>• RAII PinnedAllocator 與多 CUDA Streams 非同步佇列 |
 | 🔬 [**Station 2: Nsight Systems 硬體時間軸剖析**](docs/station2_nsight_systems_notes.md) | **Timeline Profiling & Overlap** | • 拒絕 Wall-Clock 盲測，以 CUPTI 微秒時間軸實證<br>• Copy Engine (PCIe) 與 Compute Engine (Tensor Core) 真重疊<br>• 抓包 `nchwToNhwcKernel` (26.8% 開銷) 與 CPU 瓶頸定位 |
 | ⚡ [**Station 3: CPU 前處理算子融合極限優化**](docs/station3_simd_preprocessor_notes.md) | **Operator Fusion & Cache Locality** | • 將 5 次記憶體進出融合成單次走訪 (Single-Pass)<br>• 徹底消滅暫存 `cv::Mat` (0 Heap Allocation)<br>• `constexpr` + 硬體 FMA 單週期指令 (`x * scale + bias`) |
+| 🚀 [**Station 4: AI Compiler 與 TensorRT 落地實戰**](docs/station4_tensorrt_compiler_notes.md) | **Engine Serialization & FP16** | • Kernel Fusion 與硬體 Auto-Tuning 機制<br>• Engine 序列化快取，啟動時間 21s ➔ 399ms (加速 54x)<br>• FP16 半精度加速，突破 2000+ FPS 大關 (0.49 ms) |
 
 ---
 
@@ -38,9 +39,9 @@ A high-performance image classification system built with C++ and ONNX Runtime, 
 
 | 階段 / 模式 | 優化前 (Baseline) | 優化後 (Optimized) | 改善幅度 |
 | :--- | :--- | :--- | :--- |
-| **CPU 影像前處理** | 4.36 ms (OpenCV 多步驟) | **0.24 ms** (算子融合單次走訪) | 🚀 **18.2x 狂飆** |
+| **CPU 影像前處理** | 4.36 ms (OpenCV 多步驟) | **0.23 ms** (算子融合單次走訪) | 🚀 **18.9x 狂飆** |
 | **GPU 推論 (CUDA FP32)** | 1.60 ms | **1.32 ms** | 1.2x |
-| **GPU 推論 (Pinned + Reuse)** | - | **0.53 ms** | **12.5x** |
+| **GPU 推論 (TensorRT FP16)** | - | **0.49 ms** | 🚀 **突破 2,000 FPS！** |
 | **多 Stream 非同步吞吐量** | 150 FPS (CPU) | **760+ FPS** (Dual-Stream Pipeline) | **5.1x** |
 
 ### 2. Model Modes Comparison
@@ -48,9 +49,8 @@ A high-performance image classification system built with C++ and ONNX Runtime, 
 | Mode | Inference | Throughput | Improvement |
 |------|-----------|------------|-------------|
 | CPU (4 threads) | 6.5 ms | 150 FPS | 1x |
-| GPU (CUDA) | 1.32 ms | 760 FPS | 5.1x |
-| GPU (TensorRT) | ~1.0 ms | 990 FPS | 6.6x |
-| **GPU (Pinned + Reuse)** | **0.53 ms** | **1876 FPS** | **12.5x** |
+| GPU (CUDA FP32) | 1.32 ms | 760 FPS | 5.1x |
+| **GPU (TensorRT FP16 + Engine Cache)** | **0.49 ms** | **2036 FPS** | 🚀 **13.5x (巔峰極限)** |
 | INT8 Model | 8.4 ms | 120 FPS | - |
 
 ---

@@ -63,26 +63,32 @@
 ## 🔬 三、 Nsight Systems 實戰指令與資料剖析
 
 ### 1. 採集 Profiling 資料
-在 Windows 環境下，使用 Nsight Systems CLI 對推論程式進行抓取：
+因為模型、圖片（`test_cat.jpg`）與相關 DLL 依賴皆位於 `build\Release` 目錄下，請先切換目錄後再執行抓取：
 
 ```powershell
+# 切換至執行目錄（確保能讀取模型、圖片與 CUDA/cuDNN DLLs）
+cd build\Release
+
+# 執行 Profiling
 & "C:\Program Files\NVIDIA Corporation\Nsight Systems 2024.5.1\target-windows-x64\nsys.exe" profile `
     -t cuda,nvtx `
     -o profile_run `
     --force-overwrite true `
-    .\build\Release\main.exe --gpu -b test_cat.jpg
+    .\main.exe --gpu -b test_cat.jpg
 ```
 
 * `-t cuda,nvtx`：指定追蹤 CUDA API/Kernel 以及 NVTX 標籤。
 * `-o profile_run`：產生 `profile_run.nsys-rep` 檔案。
+* `--force-overwrite true`：若已有同名報告檔則自動覆蓋。
 
 ### 2. 用指令直接產出關鍵統計摘要 (`nsys stats`)
-無需開啟 GUI，直接在終端機提取統計報表：
+無需開啟 GUI，直接在終端機提取統計報表（**注意：選項參數需放在輸入檔案前面，並加上 `--force-export=true` 避免讀取舊的 SQLite 快取**）：
 
 ```powershell
 & "C:\Program Files\NVIDIA Corporation\Nsight Systems 2024.5.1\target-windows-x64\nsys.exe" stats `
-    profile_run.nsys-rep `
-    --report cuda_gpu_kern_sum,cuda_gpu_mem_time_sum
+    --force-export=true `
+    --report cuda_gpu_kern_sum,cuda_gpu_mem_time_sum `
+    profile_run.nsys-rep
 ```
 
 #### 本專案真實採集數據解讀：
@@ -98,9 +104,9 @@
 
 ## 🖥️ 四、 GUI 時間軸圖解指南（如何看懂 `nsys-ui`）
 
-啟動 GUI 工具：
+啟動 GUI 工具（若當前仍在 `build\Release` 目錄下）：
 ```powershell
-& "C:\Program Files\NVIDIA Corporation\Nsight Systems 2024.5.1\host-windows-x64\nsys-ui.exe" .\build\Release\profile_run.nsys-rep
+& "C:\Program Files\NVIDIA Corporation\Nsight Systems 2024.5.1\host-windows-x64\nsys-ui.exe" .\profile_run.nsys-rep
 ```
 
 打開檔案後，將視窗橫向拉大，按住 `Ctrl + 滑鼠滾輪` 放大時間軸：

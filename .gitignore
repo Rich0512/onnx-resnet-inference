@@ -26,3 +26,8 @@ data/
 
 # Installers
 vs_BuildTools.exe
+
+# TensorRT Engine Cache
+trt_cache/
+*.engine
+*.plan
