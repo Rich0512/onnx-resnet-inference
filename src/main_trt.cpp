@@ -96,6 +96,7 @@ int main(int argc, char* argv[]) {
     if (run_benchmark) {
         std::cout << "[5] Running Benchmark Mode (100 Iterations)...\n";
         engine->benchmark_inference(100);
+        engine->benchmark_multithreaded(100, 2);
         std::cout << "\n";
     }
 

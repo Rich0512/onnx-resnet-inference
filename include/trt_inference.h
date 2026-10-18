@@ -31,6 +31,9 @@ public:
     // Benchmark mode: runs only the GPU inference portion
     double benchmark_inference(int iterations = 100);
 
+    // Multi-threaded Multi-Stream Benchmark Mode
+    double benchmark_multithreaded(int total_iterations = 100, int num_streams = 2);
+
     // Getters
     double get_load_time_ms() const { return load_time_ms_; }
     double get_last_preprocess_time_ms() const { return last_preprocess_time_ms_; }

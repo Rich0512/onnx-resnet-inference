@@ -5,6 +5,8 @@
 #include <chrono>
 #include <algorithm>
 #include <numeric>
+#include <thread>
+#include <future>
 
 namespace trt_native {
 
@@ -192,6 +194,78 @@ double TrtEngine::benchmark_inference(int iterations) {
               << "    FPS:  " << (1000.0 / avg) << " FPS\n";
 
     return avg;
+}
+
+double TrtEngine::benchmark_multithreaded(int total_iterations, int num_streams) {
+    if (num_streams <= 0) num_streams = 2;
+
+    struct WorkerContext {
+        std::unique_ptr<nvinfer1::IExecutionContext> context;
+        void* d_input = nullptr;
+        void* d_output = nullptr;
+        cudaStream_t stream = nullptr;
+        preprocessor::DataVector h_input;
+        std::vector<float> h_output;
+    };
+
+    size_t input_size = 1 * 3 * 224 * 224 * sizeof(float);
+    size_t output_size = 1000 * sizeof(float);
+
+    std::vector<WorkerContext> workers(num_streams);
+    for (int i = 0; i < num_streams; ++i) {
+        workers[i].context.reset(engine_->createExecutionContext());
+        cudaMalloc(&workers[i].d_input, input_size);
+        cudaMalloc(&workers[i].d_output, output_size);
+        cudaStreamCreate(&workers[i].stream);
+        workers[i].context->setTensorAddress("input_tensor", workers[i].d_input);
+        workers[i].context->setTensorAddress("output_tensor", workers[i].d_output);
+        workers[i].h_input = h_input_buffer_;
+        workers[i].h_output.resize(1000);
+    }
+
+    // Warmup all streams
+    for (int i = 0; i < num_streams; ++i) {
+        workers[i].context->enqueueV3(workers[i].stream);
+        cudaStreamSynchronize(workers[i].stream);
+    }
+
+    int runs_per_worker = total_iterations / num_streams;
+
+    auto worker_fn = [&](int worker_idx) {
+        auto& w = workers[worker_idx];
+        for (int r = 0; r < runs_per_worker; ++r) {
+            w.context->enqueueV3(w.stream);
+        }
+        cudaStreamSynchronize(w.stream);
+    };
+
+    auto t0 = std::chrono::high_resolution_clock::now();
+
+    std::vector<std::future<void>> futures;
+    for (int i = 0; i < num_streams; ++i) {
+        futures.push_back(std::async(std::launch::async, worker_fn, i));
+    }
+
+    for (auto& f : futures) {
+        f.get();
+    }
+
+    auto t1 = std::chrono::high_resolution_clock::now();
+    double total_ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
+    double fps = (1000.0 * total_iterations) / total_ms;
+
+    std::cout << "\n    [Native TensorRT Multi-Threaded Async Benchmark (" << num_streams << " Streams)]\n"
+              << "    Total time for " << total_iterations << " runs: " << total_ms << " ms\n"
+              << "    Throughput: " << fps << " FPS\n";
+
+    // Cleanup worker GPU resources
+    for (int i = 0; i < num_streams; ++i) {
+        if (workers[i].d_input) cudaFree(workers[i].d_input);
+        if (workers[i].d_output) cudaFree(workers[i].d_output);
+        if (workers[i].stream) cudaStreamDestroy(workers[i].stream);
+    }
+
+    return fps;
 }
 
 } // namespace trt_native
