@@ -70,17 +70,58 @@ session_options_.AppendExecutionProvider_TensorRT(trt_options);
 
 ---
 
-## 🎙️ 四、 面試應對指南（Interview Playbook）
+## ❓ 四、 常見深度技術 QA 實戰（Hardcore Deep Dive）
+
+### Q1: 為什麼第二站中吃掉 26.8% 的 `nchwToNhwcKernel`，在 TensorRT 中徹底消失了？
+* **三角格式衝突**：
+  * **OpenCV**：讀圖預設為 **NHWC**（像素在一起：RGBRGB...）。
+  * **PyTorch / ONNX**：學術框架與標準訓練強制定義為 **NCHW**（RRR... GGG... BBB...）。
+  * **GPU Tensor Core**：底層硬體乘加電路設計在吃 **NHWC** 時吞吐量最高。
+* **第二站普通 CUDA 的悲劇**：cuDNN 拿到 NCHW 模型，被逼在每次推論卷積前偷偷發射 `nchwToNhwcKernel` 轉成 NHWC，硬生生浪費 26.8% 算力。
+* **TensorRT 的徹底解決**：AI Compiler 在離線構建時，直接將整座神經網絡的所有權重和中介張量重塑為 **NHWC**，執行時所有 Kernel 原生以 NHWC 運算，轉置開銷徹底歸零（0%）！
+
+---
+
+### Q2: 「方案 A (ORT-TRT)」vs.「方案 B (Native TensorRT)」哪一個效能最高？實際場景如何選型？
+* **效能比較**：**方案 B（Native TensorRT C++ API）效能最高**。
+  * 方案 A 外面包了一層 ONNX Runtime 的調度封裝（`Ort::Value` 與中介層），存在微秒級的轉發延遲。
+  * 方案 B 直接連結 `nvinfer10.dll`，手握原始 GPU Device Pointers，零中間層開銷，延遲最純粹極限。
+* **場景選型原則**：
+  * **選方案 A (ORT-TRT)**：大型服務、模型演算法頻繁迭代。若模型中包含 TensorRT 不認識的奇異自定義算子，ORT 會啟動 **子圖回退（Subgraph Fallback to CUDA/CPU）**，保證程式不崩潰。
+  * **選方案 B (Native TRT)**：自動駕駛、無人機邊緣運算（Jetson）、高頻交易。追求絕對最低延遲與記憶體精確掌控。
+
+---
+
+### Q3: 程式碼中明明沒有顯式提供 Workspace Memory，TensorRT 是怎麼跑起來的？
+* **預設值機制（Default Fallback）**：
+  * `OrtTensorRTProviderOptions` 底層有安全預設值，若未顯式賦值，通常會自動向顯卡借用預設額度（通常為 1 GB 或 2 GB）。
+* **何時必須手動指定？**
+  * **邊緣受限設備（如 Jetson 4GB）**：顯存極為吃緊，必須手動限制為 256MB（`256ULL * 1024 * 1024`），防止顯存耗盡閃退（OOM）。
+  * **伺服器多實例並發**：單張顯卡同時運行多個推論服務時，必須精確劃分各個 Engine 的 Workspace 邊界。
+
+---
+
+### Q4: 在 Nsight Systems 放大到微秒級時，相鄰 Kernel 之間為什麼依然有 1 ~ 2 微秒的微小間隙？
+* **三大底層物理原因**：
+  1. **Kernel Launch Overhead（核心發射延遲）**：硬體需清空前一核心的流水線（Drain Pipeline）、回收 SM 上的暫存器與 Shared Memory，再由硬體調度器（GigaThread Engine）派發新核心的 Thread Blocks，物理電路交接需耗費 1 ~ 3 微秒。
+  2. **Data Dependency（資料相依性屏障）**：神經網絡前向傳播具有強依賴性，第二層卷積必須等待第一層資料完全落盤 L2 Cache，存在硬體隱式記憶體屏障。
+* **極限優化大招——CUDA Graphs**：
+  * 透過 CUDA Graph（或 TensorRT 內建圖捕獲），將所有 Kernel 依賴關係在啟動時固化成一張硬體拓撲圖。
+  * 執行時硬體排程器以「背靠背（Back-to-Back）」流水線執行，將發射間隙壓縮至極限。
+
+---
+
+## 🎙️ 五、 面試應對指南（Interview Playbook）
 
 ### 面試必考題：
 > **「TensorRT 與普通 ONNX Runtime/CUDA Provider 相比，為什麼推論速度能快這麼多？首次啟動很慢的問題你如何解決？」**
 
 ### 滿分回答結構：
 1. **闡述加速核心（AI Compiler 價值）**：
-   * 「TensorRT 扮演了神經網絡編譯器的角色，做了兩大核心最佳化：
+   * 「TensorRT 扮演了神經網絡編譯器的角色，做了三大核心最佳化：
      1. **Kernel Fusion**：將 Conv + Bias + ReLU 等垂直熔接，減少顯存讀寫次數。
      2. **Kernel Auto-Tuning**：在目標硬體上對卷積算法（如 Winograd 與 Tensor Core TF32/FP16 GEMM）進行實機基準測試，選出最優 Tactic。
-     3. **消除 Layout 轉置**：在編譯期直接將圖與權重調整為硬體偏好的 NHWC 格式，消除執行期的轉置開銷。」
+     3. **消除 Layout 轉置**：在編譯期直接將圖與權重調整為硬體偏好的 NHWC 格式，消除了普通 CUDA 模式下高達 26.8% 的轉置開銷。」
 2. **解決冷啟動問題（工程落地能力）**：
    * 「針對首次建構需耗時數十秒的問題，我在系統中實作了 **Engine 序列化快取（Serialization Cache）**：
      * 將離線編譯好的專用硬體二進制檔案（`.engine`）持久化至磁碟。
