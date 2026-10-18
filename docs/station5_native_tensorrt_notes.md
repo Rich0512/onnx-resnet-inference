@@ -115,12 +115,60 @@ cudaStreamSynchronize(stream);
 
 ---
 
-## 五、 如何執行純 C++ 原生引擎
+---
+
+## 五、 原生多 Streams 併發管線化 (Multi-Stream Pipelining)
+
+剛才我們在 [src/trt_inference.cpp](file:///c:/Users/Richard/Desktop/C++/onnx-resnet-inference/src/trt_inference.cpp#L199-L270) 實作了雙 Streams 併發，將吞吐量推升到全新高峰：
+
+### 核心架構：共享 Engine，獨立 Context
+```text
+                          +------------------------+
+                          |   ICudaEngine (唯讀)    |
+                          +------------------------+
+                                /            \
+                               /              \
+            +---------------------+        +---------------------+
+            | IExecutionContext 1 |        | IExecutionContext 2 |
+            | d_input_1 / stream1 |        | d_input_2 / stream2 |
+            +---------------------+        +---------------------+
+                       |                              |
+            context_1->enqueueV3()         context_2->enqueueV3()
+                       \                              /
+                        v                            v
+                      GPU Tensor Core 同時分時交錯運算 (2950 FPS)
+```
+
+| 模式 | 執行緒 / Streams | 100 次總耗時 | 吞吐量 (Throughput) |
+| :--- | :--- | :--- | :--- |
+| **單 Stream 原生推論** | 1 Thread + 1 Stream | 37.6 ms | 2657 FPS |
+| **雙 Streams 併發管線** | **2 Threads + 2 Streams** | **33.8 ms** | **2950 FPS** |
+
+---
+
+## 六、 新手解密：寫給 Python / 演算法工程師的「C++ 關鍵語法白話速查」
+
+> **心態建立**：學 AI Systems / HPC 的核心是**「理解硬體在幹嘛」**，而不是「默背 C++ 艱深的語法」。在推論引擎中，C++ 只是我們用來「遙控 GPU」最直接的一把螺絲起子。
+
+以下把專案中你看到的所有 C++ 語法，用 Python 直覺一對一翻譯：
+
+| C++ 語法 | 實際長相 | Python 對應直覺 | 為什麼這樣寫？（硬體目的） |
+| :--- | :--- | :--- | :--- |
+| **`std::unique_ptr`** | `std::unique_ptr<nvinfer1::IRuntime> runtime;` | 類似 `with ... as f:` 離開時自動 `del` | **防記憶體洩漏**。當函式結束時，C++ 會自動幫你把 GPU/CPU 記憶體乾淨釋放，不用手動 `free()`。 |
+| **指標與取址 `*` 與 `&`** | `cudaMalloc(&d_input, size)`<br>`context->setTensorAddress(..., d_input)` | 傳遞記憶體「門牌號碼」 | GPU 顯存非常龐大，我們不能像 Python 那樣動不動傳遞整個物件，而是給它門牌號碼（指標），GPU 直接去該位址讀寫。 |
+| **`std::vector`** | `std::vector<float> buffer(1000);` | 就是 Python 的 `list`（可連續存取的陣列） | 在 CPU 記憶體中開一塊連續空間放資料。 |
+| **`std::async` 與 `std::future`** | `auto f = std::async(worker);`<br>`f.get();` | 類似 `threading.Thread` 或 `asyncio.create_task` | 在 CPU 背景另外開一條執行緒去呼叫 GPU，最後用 `.get()` 等它做完。 |
+| **`cudaStream_t`** | `cudaStreamCreate(&stream);`<br>`enqueueV3(stream);` | 類似非同步任務隊列 (Task Queue) | GPU 就像一條工廠輸送帶，Stream 就是輸送帶編號。多個 Stream 代表多條輸送帶同時送貨進工廠。 |
+| **`cudaStreamSynchronize`** | `cudaStreamSynchronize(stream);` | 類似 `await task` 或 `thread.join()` | 因為對 GPU 發送指令是非同步（發完 CPU 就繼續往下跑了），所以當我們要印出預測結果時，必須喊一聲「等 GPU 輸送帶跑完再看結果」。 |
+
+---
+
+## 七、 如何執行純 C++ 原生引擎
 
 在 `build/Release` 目錄下執行：
 
 ```powershell
-# 執行原生 TensorRT 10 C++ 引擎（自動搜尋快取引擎）
+# 執行原生 TensorRT 10 C++ 引擎（單 Stream + 雙 Streams 自動跑分）
 .\main_trt.exe -b test_cat.jpg
 ```
 
@@ -135,16 +183,20 @@ cudaStreamSynchronize(stream);
 [2] Loading image...
     Size: 600x801 pixels
 [3] Initializing Native TensorRT Engine...
-    Engine loaded & deserialized in 136.7 ms
+    Engine loaded & deserialized in 130.3 ms
 [4] Running End-to-End Prediction (Station 3 Fused C++ Preprocessor)...
     Preprocessing: 0.24 ms
-    Inference:     0.39 ms
+    Inference:     0.37 ms
 [5] Running Benchmark Mode (100 Iterations)...
-    Avg:  0.397 ms
-    FPS:  2516.19 FPS
+    [Native TensorRT Benchmark Mode]
+    Avg:  0.376 ms (2657 FPS)
+    [Native TensorRT Multi-Threaded Async Benchmark (2 Streams)]
+    Total time for 100 runs: 33.89 ms
+    Throughput: 2950.17 FPS
 [6] Top-5 Predictions:
     1. lynx (score: 13.7891, id: 287)
     2. tiger cat (score: 13.1172, id: 282)
     3. tabby cat (score: 12.8203, id: 281)
 ========================================
 ```
+

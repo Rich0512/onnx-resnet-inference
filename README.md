@@ -44,7 +44,8 @@ A high-performance image classification system built with C++ and ONNX Runtime, 
 | **GPU 推論 (CUDA FP32)** | 1.60 ms | **1.32 ms** | 1.2x |
 | **GPU 推論 (ORT-TRT FP16)** | - | **0.49 ms** | 🚀 **突破 2,000 FPS！** |
 | **GPU 推論 (Native TensorRT 10 Pure C++)** | - | **0.39 ms** | 🚀 **突破 2,500 FPS (極致)** |
-| **多 Stream 非同步吞吐量** | 150 FPS (CPU) | **760+ FPS** (Dual-Stream Pipeline) | **5.1x** |
+| **多 Stream 非同步吞吐量 (ORT-TRT)** | 150 FPS (CPU) | **2000 FPS** (Dual-Stream ORT) | **13.3x** |
+| **多 Stream 非同步吞吐量 (Native TRT)** | 150 FPS (CPU) | **2950+ FPS** (Dual-Stream Pure C++) | 🚀 **19.6x (極限吞吐)** |
 
 ### 2. Model Modes Comparison
 
@@ -53,7 +54,8 @@ A high-performance image classification system built with C++ and ONNX Runtime, 
 | CPU (4 threads) | 6.5 ms | 150 FPS | 1x |
 | GPU (CUDA FP32) | 1.32 ms | 760 FPS | 5.1x |
 | GPU (TensorRT FP16 + Engine Cache) | 0.49 ms | 2036 FPS | 13.5x |
-| **GPU (Native TensorRT 10 Pure C++)** | **0.39 ms** | **2516 FPS** | 🚀 **16.6x (極限吞吐)** |
+| GPU (Native TensorRT 10 Pure C++ Single Stream) | 0.39 ms | 2657 FPS | 17.7x |
+| **GPU (Native TensorRT 10 Pure C++ Dual-Stream)** | **0.34 ms** | **2950+ FPS** | 🚀 **19.6x (極致高峰)** |
 | INT8 Model | 8.4 ms | 120 FPS | - |
 
 ---
