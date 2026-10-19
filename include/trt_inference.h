@@ -25,11 +25,20 @@ public:
     TrtEngine(const TrtEngine&) = delete;
     TrtEngine& operator=(const TrtEngine&) = delete;
 
-    // Run end-to-end inference on cv::Mat
+    // Run end-to-end inference on cv::Mat (CPU Fused Preprocessor)
     std::vector<Prediction> predict(const cv::Mat& image, int top_k = 5);
+
+    // Run end-to-end inference on cv::Mat (GPU CUDA Kernel Preprocessor)
+    std::vector<Prediction> predict_gpu_preprocess(const cv::Mat& image, int top_k = 5);
 
     // Benchmark mode: runs only the GPU inference portion
     double benchmark_inference(int iterations = 100);
+
+    // Benchmark GPU Preprocessing Kernel alone
+    double benchmark_gpu_preprocess(const cv::Mat& raw_image, int iterations = 100);
+
+    // Benchmark full End-to-End GPU Pipeline (CUDA Preprocess Kernel + TRT enqueueV3 + D2H)
+    double benchmark_end_to_end_gpu(const cv::Mat& raw_image, int iterations = 100);
 
     // Multi-threaded Multi-Stream Benchmark Mode
     double benchmark_multithreaded(int total_iterations = 100, int num_streams = 2);
@@ -37,6 +46,7 @@ public:
     // Getters
     double get_load_time_ms() const { return load_time_ms_; }
     double get_last_preprocess_time_ms() const { return last_preprocess_time_ms_; }
+    double get_last_gpu_preprocess_time_ms() const { return last_gpu_preprocess_time_ms_; }
     double get_last_inference_time_ms() const { return last_inference_time_ms_; }
 
 private:
@@ -46,6 +56,7 @@ private:
     std::string engine_path_;
     double load_time_ms_ = 0.0;
     double last_preprocess_time_ms_ = 0.0;
+    double last_gpu_preprocess_time_ms_ = 0.0;
     double last_inference_time_ms_ = 0.0;
 
     std::unique_ptr<nvinfer1::IRuntime> runtime_;
@@ -55,6 +66,8 @@ private:
     // Device memory pointers
     void* d_input_ = nullptr;
     void* d_output_ = nullptr;
+    void* d_raw_bgr_ = nullptr;
+    size_t allocated_raw_bgr_size_ = 0;
     cudaStream_t stream_ = nullptr;
 
     // Host pinned/aligned buffers

@@ -1,5 +1,6 @@
 #include "trt_inference.h"
 #include "imagenet_labels.h"
+#include "cuda_preprocessor.h"
 #include <fstream>
 #include <iostream>
 #include <chrono>
@@ -107,6 +108,11 @@ void TrtEngine::cleanup_cuda() {
         cudaFree(d_output_);
         d_output_ = nullptr;
     }
+    if (d_raw_bgr_) {
+        cudaFree(d_raw_bgr_);
+        d_raw_bgr_ = nullptr;
+        allocated_raw_bgr_size_ = 0;
+    }
     if (stream_) {
         cudaStreamDestroy(stream_);
         stream_ = nullptr;
@@ -161,6 +167,180 @@ std::vector<Prediction> TrtEngine::predict(const cv::Mat& image, int top_k) {
     }
 
     return predictions;
+}
+
+std::vector<Prediction> TrtEngine::predict_gpu_preprocess(const cv::Mat& image, int top_k) {
+    if (image.empty()) {
+        throw std::runtime_error("Empty image passed to predict_gpu_preprocess");
+    }
+
+    // 1. Ensure GPU buffer for raw BGR image is allocated
+    size_t raw_size = static_cast<size_t>(image.cols) * image.rows * 3;
+    if (raw_size > allocated_raw_bgr_size_) {
+        if (d_raw_bgr_) cudaFree(d_raw_bgr_);
+        cudaMalloc(&d_raw_bgr_, raw_size);
+        allocated_raw_bgr_size_ = raw_size;
+    }
+
+    // 2. Direct copy of raw BGR image from Host to Device
+    cudaMemcpyAsync(d_raw_bgr_, image.data, raw_size, cudaMemcpyHostToDevice, stream_);
+
+    // 3. Fused GPU CUDA Preprocessor (Bilinear Resize + BGR->RGB + Normalization + NCHW)
+    cudaEvent_t ev_start, ev_end;
+    cudaEventCreate(&ev_start);
+    cudaEventCreate(&ev_end);
+
+    cudaEventRecord(ev_start, stream_);
+    cuda_preprocess::launch_cuda_preprocess(
+        static_cast<const uint8_t*>(d_raw_bgr_), image.cols, image.rows,
+        static_cast<float*>(d_input_), 224, 224,
+        stream_
+    );
+    cudaEventRecord(ev_end, stream_);
+
+    // 4. Enqueue Inference Kernel on Stream
+    auto t_inf0 = std::chrono::high_resolution_clock::now();
+    context_->enqueueV3(stream_);
+
+    // 5. Async D2H Transfer
+    size_t output_size = 1000 * sizeof(float);
+    cudaMemcpyAsync(h_output_buffer_.data(), d_output_, output_size, cudaMemcpyDeviceToHost, stream_);
+
+    // 6. Synchronize CUDA Stream
+    cudaStreamSynchronize(stream_);
+    auto t_inf1 = std::chrono::high_resolution_clock::now();
+    last_inference_time_ms_ = std::chrono::duration<double, std::milli>(t_inf1 - t_inf0).count();
+
+    float gpu_pre_ms = 0.0f;
+    cudaEventElapsedTime(&gpu_pre_ms, ev_start, ev_end);
+    last_gpu_preprocess_time_ms_ = static_cast<double>(gpu_pre_ms);
+
+    cudaEventDestroy(ev_start);
+    cudaEventDestroy(ev_end);
+
+    // 7. Top-K postprocessing
+    std::vector<int> indices(1000);
+    std::iota(indices.begin(), indices.end(), 0);
+    std::partial_sort(indices.begin(), indices.begin() + top_k, indices.end(),
+        [this](int a, int b) {
+            return h_output_buffer_[a] > h_output_buffer_[b];
+        });
+
+    std::vector<Prediction> predictions;
+    for (int i = 0; i < top_k; ++i) {
+        int idx = indices[i];
+        std::string label = "unknown";
+        auto it = imagenet::LABELS.find(idx);
+        if (it != imagenet::LABELS.end()) {
+            label = it->second;
+        }
+        predictions.push_back({
+            idx,
+            h_output_buffer_[idx],
+            label
+        });
+    }
+
+    return predictions;
+}
+
+double TrtEngine::benchmark_gpu_preprocess(const cv::Mat& raw_image, int iterations) {
+    if (raw_image.empty()) return 0.0;
+
+    size_t raw_size = static_cast<size_t>(raw_image.cols) * raw_image.rows * 3;
+    if (raw_size > allocated_raw_bgr_size_) {
+        if (d_raw_bgr_) cudaFree(d_raw_bgr_);
+        cudaMalloc(&d_raw_bgr_, raw_size);
+        allocated_raw_bgr_size_ = raw_size;
+    }
+    cudaMemcpy(d_raw_bgr_, raw_image.data, raw_size, cudaMemcpyHostToDevice);
+
+    // Warmup
+    for (int i = 0; i < 10; ++i) {
+        cuda_preprocess::launch_cuda_preprocess(
+            static_cast<const uint8_t*>(d_raw_bgr_), raw_image.cols, raw_image.rows,
+            static_cast<float*>(d_input_), 224, 224, stream_
+        );
+    }
+    cudaStreamSynchronize(stream_);
+
+    cudaEvent_t start, stop;
+    cudaEventCreate(&start);
+    cudaEventCreate(&stop);
+
+    cudaEventRecord(start, stream_);
+    for (int i = 0; i < iterations; ++i) {
+        cuda_preprocess::launch_cuda_preprocess(
+            static_cast<const uint8_t*>(d_raw_bgr_), raw_image.cols, raw_image.rows,
+            static_cast<float*>(d_input_), 224, 224, stream_
+        );
+    }
+    cudaEventRecord(stop, stream_);
+    cudaEventSynchronize(stop);
+
+    float total_ms = 0.0f;
+    cudaEventElapsedTime(&total_ms, start, stop);
+    double avg_ms = static_cast<double>(total_ms) / iterations;
+
+    cudaEventDestroy(start);
+    cudaEventDestroy(stop);
+
+    return avg_ms;
+}
+
+double TrtEngine::benchmark_end_to_end_gpu(const cv::Mat& raw_image, int iterations) {
+    if (raw_image.empty()) return 0.0;
+
+    size_t raw_size = static_cast<size_t>(raw_image.cols) * raw_image.rows * 3;
+    if (raw_size > allocated_raw_bgr_size_) {
+        if (d_raw_bgr_) cudaFree(d_raw_bgr_);
+        cudaMalloc(&d_raw_bgr_, raw_size);
+        allocated_raw_bgr_size_ = raw_size;
+    }
+    cudaMemcpy(d_raw_bgr_, raw_image.data, raw_size, cudaMemcpyHostToDevice);
+
+    size_t output_size = 1000 * sizeof(float);
+
+    // Warmup
+    for (int i = 0; i < 10; ++i) {
+        cuda_preprocess::launch_cuda_preprocess(
+            static_cast<const uint8_t*>(d_raw_bgr_), raw_image.cols, raw_image.rows,
+            static_cast<float*>(d_input_), 224, 224, stream_
+        );
+        context_->enqueueV3(stream_);
+        cudaMemcpyAsync(h_output_buffer_.data(), d_output_, output_size, cudaMemcpyDeviceToHost, stream_);
+        cudaStreamSynchronize(stream_);
+    }
+
+    std::vector<double> latencies;
+    latencies.reserve(iterations);
+
+    for (int i = 0; i < iterations; ++i) {
+        auto t0 = std::chrono::high_resolution_clock::now();
+        cuda_preprocess::launch_cuda_preprocess(
+            static_cast<const uint8_t*>(d_raw_bgr_), raw_image.cols, raw_image.rows,
+            static_cast<float*>(d_input_), 224, 224, stream_
+        );
+        context_->enqueueV3(stream_);
+        cudaMemcpyAsync(h_output_buffer_.data(), d_output_, output_size, cudaMemcpyDeviceToHost, stream_);
+        cudaStreamSynchronize(stream_);
+        auto t1 = std::chrono::high_resolution_clock::now();
+        latencies.push_back(std::chrono::duration<double, std::milli>(t1 - t0).count());
+    }
+
+    double total = std::accumulate(latencies.begin(), latencies.end(), 0.0);
+    double avg = total / iterations;
+    double min_lat = *std::min_element(latencies.begin(), latencies.end());
+    double max_lat = *std::max_element(latencies.begin(), latencies.end());
+
+    std::cout << "    [Station 6 Pure GPU Pipeline (CUDA Preprocess + TRT FP16 + D2H)]\n"
+              << "    Runs: " << iterations << "\n"
+              << "    Min:  " << min_lat << " ms\n"
+              << "    Max:  " << max_lat << " ms\n"
+              << "    Avg:  " << avg << " ms\n"
+              << "    FPS:  " << (1000.0 / avg) << " FPS\n";
+
+    return avg;
 }
 
 double TrtEngine::benchmark_inference(int iterations) {

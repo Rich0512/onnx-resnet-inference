@@ -31,3 +31,7 @@ vs_BuildTools.exe
 trt_cache/
 *.engine
 *.plan
+
+# Python cache & test images
+__pycache__/
+*.jpg

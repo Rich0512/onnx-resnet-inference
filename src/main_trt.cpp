@@ -89,31 +89,44 @@ int main(int argc, char* argv[]) {
     // 4. Inference
     std::cout << "[4] Running End-to-End Prediction (Station 3 Fused C++ Preprocessor)...\n";
     auto predictions = engine->predict(image, 5);
-    std::cout << "    Preprocessing: " << engine->get_last_preprocess_time_ms() << " ms\n"
-              << "    Inference:     " << engine->get_last_inference_time_ms() << " ms\n\n";
+    std::cout << "    CPU Preprocess: " << engine->get_last_preprocess_time_ms() << " ms\n"
+              << "    GPU Inference:  " << engine->get_last_inference_time_ms() << " ms\n\n";
+
+    std::cout << "[5] Running End-to-End Prediction (Station 6 GPU CUDA Kernel Preprocessor)...\n";
+    auto gpu_pre_predictions = engine->predict_gpu_preprocess(image, 5);
+    std::cout << "    GPU CUDA Preprocess: " << engine->get_last_gpu_preprocess_time_ms() << " ms\n"
+              << "    GPU Inference:       " << engine->get_last_inference_time_ms() << " ms\n\n";
 
     // 5. Benchmark mode
+    double gpu_pre_avg_ms = 0.0;
     if (run_benchmark) {
-        std::cout << "[5] Running Benchmark Mode (100 Iterations)...\n";
+        std::cout << "[6] Running Benchmark Mode (100 Iterations)...\n";
+        gpu_pre_avg_ms = engine->benchmark_gpu_preprocess(image, 100);
+        std::cout << "    [Station 6 GPU CUDA Preprocessor Alone]\n"
+                  << "    Avg Kernel Time: " << gpu_pre_avg_ms << " ms (" << (1000.0 / gpu_pre_avg_ms) << " FPS)\n\n";
+
         engine->benchmark_inference(100);
+        std::cout << "\n";
+        engine->benchmark_end_to_end_gpu(image, 100);
         engine->benchmark_multithreaded(100, 2);
         std::cout << "\n";
     }
 
     // 6. Results
-    std::cout << "[6] Top-5 Predictions:\n";
-    for (size_t i = 0; i < predictions.size(); ++i) {
-        std::cout << "    " << (i + 1) << ". " << predictions[i].label
-                  << " (score: " << predictions[i].confidence << ", id: " << predictions[i].class_id << ")\n";
+    std::cout << "[7] Top-5 Predictions (Verified with GPU CUDA Preprocessor):\n";
+    for (size_t i = 0; i < gpu_pre_predictions.size(); ++i) {
+        std::cout << "    " << (i + 1) << ". " << gpu_pre_predictions[i].label
+                  << " (score: " << gpu_pre_predictions[i].confidence << ", id: " << gpu_pre_predictions[i].class_id << ")\n";
     }
 
     std::cout << "\n========================================\n"
-              << "   Performance Summary (Pure C++ Option B)\n"
+              << "   Performance Summary (Station 6: End-to-End)\n"
               << "========================================\n"
-              << "  Mode:        Native TensorRT 10 (Pure C++)\n"
-              << "  Engine load: " << engine->get_load_time_ms() << " ms\n"
-              << "  Preprocess:  " << engine->get_last_preprocess_time_ms() << " ms (Fused C++)\n"
-              << "  Inference:   " << engine->get_last_inference_time_ms() << " ms\n"
+              << "  Mode:               Native TensorRT 10 + CUDA Kernel\n"
+              << "  Engine load:        " << engine->get_load_time_ms() << " ms\n"
+              << "  Station 3 CPU Pre:  " << engine->get_last_preprocess_time_ms() << " ms (Fused C++)\n"
+              << "  Station 6 GPU Pre:  " << engine->get_last_gpu_preprocess_time_ms() << " ms (CUDA Kernel)\n"
+              << "  Inference:          " << engine->get_last_inference_time_ms() << " ms\n"
               << "========================================\n";
 
     return 0;

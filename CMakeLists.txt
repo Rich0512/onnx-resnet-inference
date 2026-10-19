@@ -28,6 +28,11 @@ if(USE_CUDA)
     message(STATUS "========================================")
     message(STATUS "  CUDA GPU Acceleration: ENABLED")
     
+    # Enable CUDA language for .cu compilation with nvcc
+    enable_language(CUDA)
+    set(CMAKE_CUDA_STANDARD 17)
+    set(CMAKE_CUDA_ARCHITECTURES 86)
+
     # Find CUDA Toolkit
     find_package(CUDAToolkit REQUIRED)
     message(STATUS "  Found CUDA Toolkit: ${CUDAToolkit_VERSION}")
@@ -103,6 +108,7 @@ if(USE_CUDA)
         ${SRC_DIR}/main_trt.cpp
         ${SRC_DIR}/trt_inference.cpp
         ${SRC_DIR}/preprocessor.cpp
+        ${SRC_DIR}/cuda_preprocessor.cu
     )
     add_executable(main_trt ${TRT_SOURCES})
     target_link_libraries(main_trt PRIVATE "${THIRD_PARTY_DIR}/nvinfer_10.lib" ${OpenCV_LIBS} CUDA::cudart)
