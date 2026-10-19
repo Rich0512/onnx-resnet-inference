@@ -15,12 +15,15 @@ const std::unordered_map<int, std::string> LABELS = {
     // Cats
     {281, "tabby cat"},
     {282, "tiger cat"},
+    {283, "Persian cat"},
+    {284, "Siamese cat"},
     {285, "Egyptian cat"},
     {287, "lynx"},
     {288, "leopard"},
     
     // Dogs
     {151, "Chihuahua"},
+    {158, "papillon"},
     {207, "golden retriever"},
     {208, "Labrador retriever"},
     {230, "Shetland sheepdog"},
