@@ -32,6 +32,7 @@ A high-performance image classification system built with C++ and ONNX Runtime, 
 | 🚀 [**Station 4: AI Compiler 與 TensorRT 落地實戰**](docs/station4_tensorrt_compiler_notes.md) | **Engine Serialization & FP16** | • Kernel Fusion 與硬體 Auto-Tuning 機制<br>• Engine 序列化快取，啟動時間 21s ➔ 399ms (加速 54x)<br>• FP16 半精度加速，突破 2000+ FPS 大關 (0.49 ms) |
 | 🏎️ [**Station 5: 100% 純 C++ 原生 TensorRT 引擎**](docs/station5_native_tensorrt_notes.md) | **Native C++ API & Zero Overhead** | • 擺脫 ONNX Runtime 與 Python 包裝，純 C++ 原生引擎<br>• `IRuntime` ➔ `ICudaEngine` ➔ `IExecutionContext` ➔ `enqueueV3`<br>• 零調度開銷，延遲壓至 **0.39 ms (2516+ FPS)** |
 | ⚡ [**Station 6: GPU 原生自訂 CUDA Kernel 前處理**](docs/station6_cuda_preprocessor_notes.md) | **Custom CUDA Kernel & Memory Zero-Copy** | • 將 Resize + BGR轉RGB + Normalize + NCHW 轉置融合為單一 CUDA Kernel<br>• 2D Thread Grid (14x14 Blocks) 映射與雙線性插值<br>• 前處理延遲從 0.23 ms 暴降至 **0.0093 ms (>100,000 FPS)** |
+| 🔮 [**Station 7: CUDA Graphs 零調度開銷圖錄製**](docs/station7_cuda_graphs_notes.md) | **CUDA Graph Hardware Topology Replay** | • Stream Capture 預編譯靜態 DAG 依賴拓撲 (`cudaGraphExec_t`)<br>• 消滅 CPU Kernel Launch 延遲氣泡 (~130 微秒)<br>• 單串流端到端延遲壓至 **0.30 ms (3,318 FPS)** |
 
 ---
 
@@ -46,9 +47,10 @@ A high-performance image classification system built with C++ and ONNX Runtime, 
 | **GPU 推論 (CUDA FP32)** | 1.60 ms | **1.32 ms** | 1.2x |
 | **GPU 推論 (ORT-TRT FP16)** | - | **0.49 ms** | 🚀 **突破 2,000 FPS！** |
 | **GPU 推論 (Native TensorRT 10 Pure C++)** | - | **0.37 ms** | 🚀 **突破 2,700 FPS (極致)** |
-| **純 GPU 端到端 Pipeline (Preprocess + TRT + D2H)** | 49.36 ms (全 CPU 基準) | **0.42 ms** (純 GPU 直通) | 🚀 **117x 加速 (2375 FPS)** |
+| **純 GPU 端到端 Pipeline (Preprocess + TRT + D2H)** | 49.36 ms (全 CPU 基準) | **0.43 ms** (純 GPU 直通) | 🚀 **114x 加速 (2311 FPS)** |
+| **CUDA Graph 硬體重播 (全圖固化零發射開銷)** | 49.36 ms (全 CPU 基準) | **0.30 ms** (單串流極限) | 🚀 **164x 加速 (3318 FPS)** |
 | **多 Stream 非同步吞吐量 (ORT-TRT)** | 150 FPS (CPU) | **2000 FPS** (Dual-Stream ORT) | **13.3x** |
-| **多 Stream 非同步吞吐量 (Native TRT)** | 150 FPS (CPU) | **3000+ FPS** (Dual-Stream Pure C++) | 🚀 **20.1x (極限吞吐)** |
+| **多 Stream 非同步吞吐量 (Native TRT)** | 150 FPS (CPU) | **3200+ FPS** (Dual-Stream Pure C++) | 🚀 **21.3x (極限吞吐)** |
 
 ### 2. Model Modes Comparison
 
@@ -58,7 +60,8 @@ A high-performance image classification system built with C++ and ONNX Runtime, 
 | GPU (CUDA FP32) | 1.32 ms | 760 FPS | 5.1x |
 | GPU (TensorRT FP16 + Engine Cache) | 0.49 ms | 2036 FPS | 13.5x |
 | GPU (Native TensorRT 10 Pure C++ Single Stream) | 0.37 ms | 2723 FPS | 18.1x |
-| **GPU (Native TensorRT 10 Pure C++ Dual-Stream)** | **0.33 ms** | **3018+ FPS** | 🚀 **20.1x (極致高峰)** |
+| **GPU (CUDA Graph Hardware Replay Single Stream)** | **0.30 ms** | **3318+ FPS** | 🚀 **22.1x (單串流極致)** |
+| **GPU (Native TensorRT 10 Pure C++ Dual-Stream)** | **0.31 ms** | **3214+ FPS** | 🚀 **21.4x (高併發高峰)** |
 | **Station 6 GPU CUDA Preprocessor (Alone)** | **0.0093 ms** | **106,700+ FPS** | 🚀 **468x vs Baseline** |
 | INT8 Model | 8.4 ms | 120 FPS | - |
 

@@ -117,6 +117,15 @@ void TrtEngine::cleanup_cuda() {
         cudaStreamDestroy(stream_);
         stream_ = nullptr;
     }
+    if (graph_exec_) {
+        cudaGraphExecDestroy(graph_exec_);
+        graph_exec_ = nullptr;
+    }
+    if (graph_) {
+        cudaGraphDestroy(graph_);
+        graph_ = nullptr;
+    }
+    graph_captured_ = false;
 }
 
 std::vector<Prediction> TrtEngine::predict(const cv::Mat& image, int top_k) {
@@ -446,6 +455,155 @@ double TrtEngine::benchmark_multithreaded(int total_iterations, int num_streams)
     }
 
     return fps;
+}
+
+void TrtEngine::capture_cuda_graph(const cv::Mat& sample_image) {
+    if (sample_image.empty()) {
+        throw std::runtime_error("Cannot capture CUDA graph with an empty image");
+    }
+
+    size_t raw_size = static_cast<size_t>(sample_image.cols) * sample_image.rows * 3;
+    if (raw_size > allocated_raw_bgr_size_) {
+        if (d_raw_bgr_) cudaFree(d_raw_bgr_);
+        cudaMalloc(&d_raw_bgr_, raw_size);
+        allocated_raw_bgr_size_ = raw_size;
+    }
+    cudaMemcpy(d_raw_bgr_, sample_image.data, raw_size, cudaMemcpyHostToDevice);
+
+    size_t output_size = 1000 * sizeof(float);
+
+    // Warmup: TensorRT and CUDA runtimes need one iteration on the stream
+    // to complete one-time driver state setups before stream capture.
+    cuda_preprocess::launch_cuda_preprocess(
+        static_cast<const uint8_t*>(d_raw_bgr_), sample_image.cols, sample_image.rows,
+        static_cast<float*>(d_input_), 224, 224, stream_
+    );
+    context_->enqueueV3(stream_);
+    cudaMemcpyAsync(h_output_buffer_.data(), d_output_, output_size, cudaMemcpyDeviceToHost, stream_);
+    cudaStreamSynchronize(stream_);
+
+    // If a graph was already captured previously, destroy it before recapturing
+    if (graph_exec_) {
+        cudaGraphExecDestroy(graph_exec_);
+        graph_exec_ = nullptr;
+    }
+    if (graph_) {
+        cudaGraphDestroy(graph_);
+        graph_ = nullptr;
+    }
+
+    // 1. Begin Stream Capture
+    cudaError_t err = cudaStreamBeginCapture(stream_, cudaStreamCaptureModeGlobal);
+    if (err != cudaSuccess) {
+        throw std::runtime_error("cudaStreamBeginCapture failed: " + std::string(cudaGetErrorString(err)));
+    }
+
+    // 2. Enqueue the entire pipeline into the stream (Preprocess -> TRT enqueueV3 -> D2H)
+    cuda_preprocess::launch_cuda_preprocess(
+        static_cast<const uint8_t*>(d_raw_bgr_), sample_image.cols, sample_image.rows,
+        static_cast<float*>(d_input_), 224, 224, stream_
+    );
+    context_->enqueueV3(stream_);
+    cudaMemcpyAsync(h_output_buffer_.data(), d_output_, output_size, cudaMemcpyDeviceToHost, stream_);
+
+    // 3. End Stream Capture
+    err = cudaStreamEndCapture(stream_, &graph_);
+    if (err != cudaSuccess) {
+        throw std::runtime_error("cudaStreamEndCapture failed: " + std::string(cudaGetErrorString(err)));
+    }
+
+    // 4. Instantiate the Executable Graph
+    err = cudaGraphInstantiate(&graph_exec_, graph_, nullptr, nullptr, 0);
+    if (err != cudaSuccess) {
+        throw std::runtime_error("cudaGraphInstantiate failed: " + std::string(cudaGetErrorString(err)));
+    }
+
+    graph_captured_ = true;
+    std::cout << "    [CUDA Graph] Successfully captured and instantiated execution graph!\n";
+}
+
+std::vector<Prediction> TrtEngine::predict_cuda_graph(const cv::Mat& image, int top_k) {
+    if (!graph_captured_) {
+        capture_cuda_graph(image);
+    }
+
+    // 1. Copy fresh raw image to pre-allocated device memory
+    size_t raw_size = static_cast<size_t>(image.cols) * image.rows * 3;
+    if (raw_size > allocated_raw_bgr_size_) {
+        // If image size changed, need to reallocate and recapture
+        capture_cuda_graph(image);
+    }
+    cudaMemcpyAsync(d_raw_bgr_, image.data, raw_size, cudaMemcpyHostToDevice, stream_);
+
+    // 2. Launch the entire captured graph with a SINGLE call (Zero CPU launch overhead!)
+    auto t0 = std::chrono::high_resolution_clock::now();
+    cudaGraphLaunch(graph_exec_, stream_);
+    cudaStreamSynchronize(stream_);
+    auto t1 = std::chrono::high_resolution_clock::now();
+
+    last_graph_time_ms_ = std::chrono::duration<double, std::milli>(t1 - t0).count();
+
+    // 3. Top-k extraction
+    std::vector<int> indices(1000);
+    std::iota(indices.begin(), indices.end(), 0);
+    std::partial_sort(indices.begin(), indices.begin() + top_k, indices.end(),
+        [this](int a, int b) {
+            return h_output_buffer_[a] > h_output_buffer_[b];
+        });
+
+    std::vector<Prediction> predictions;
+    for (int i = 0; i < top_k; ++i) {
+        int idx = indices[i];
+        std::string label = "unknown";
+        auto it = imagenet::LABELS.find(idx);
+        if (it != imagenet::LABELS.end()) {
+            label = it->second;
+        }
+        predictions.push_back({
+            idx,
+            h_output_buffer_[idx],
+            label
+        });
+    }
+
+    return predictions;
+}
+
+double TrtEngine::benchmark_cuda_graph(const cv::Mat& sample_image, int iterations) {
+    if (!graph_captured_) {
+        capture_cuda_graph(sample_image);
+    }
+
+    // Warmup graph replay
+    for (int i = 0; i < 10; ++i) {
+        cudaGraphLaunch(graph_exec_, stream_);
+    }
+    cudaStreamSynchronize(stream_);
+
+    std::vector<double> latencies;
+    latencies.reserve(iterations);
+
+    for (int i = 0; i < iterations; ++i) {
+        auto t0 = std::chrono::high_resolution_clock::now();
+        cudaGraphLaunch(graph_exec_, stream_);
+        cudaStreamSynchronize(stream_);
+        auto t1 = std::chrono::high_resolution_clock::now();
+        latencies.push_back(std::chrono::duration<double, std::milli>(t1 - t0).count());
+    }
+
+    double total = std::accumulate(latencies.begin(), latencies.end(), 0.0);
+    double avg = total / iterations;
+    double min_lat = *std::min_element(latencies.begin(), latencies.end());
+    double max_lat = *std::max_element(latencies.begin(), latencies.end());
+
+    std::cout << "    [Station 7 CUDA Graph Replay (Zero Launch Overhead: Pre + TRT + D2H)]\n"
+              << "    Runs: " << iterations << "\n"
+              << "    Min:  " << min_lat << " ms\n"
+              << "    Max:  " << max_lat << " ms\n"
+              << "    Avg:  " << avg << " ms\n"
+              << "    FPS:  " << (1000.0 / avg) << " FPS\n";
+
+    return avg;
 }
 
 } // namespace trt_native
