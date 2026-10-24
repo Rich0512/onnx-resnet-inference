@@ -18,7 +18,7 @@ struct Prediction {
 
 class TrtEngine {
 public:
-    explicit TrtEngine(const std::string& engine_path);
+    explicit TrtEngine(const std::string& engine_path, int max_batch_size = 32);
     ~TrtEngine();
 
     // Disable copy
@@ -30,6 +30,18 @@ public:
 
     // Run end-to-end inference on cv::Mat (GPU CUDA Kernel Preprocessor)
     std::vector<Prediction> predict_gpu_preprocess(const cv::Mat& image, int top_k = 5);
+
+    // ========================================================================
+    // Station 8: Dynamic Batching API
+    // ========================================================================
+    // Predict a batch of N images using GPU batched preprocessing and dynamic TensorRT
+    std::vector<std::vector<Prediction>> predict_batch(const std::vector<cv::Mat>& images, int top_k = 5);
+
+    // Benchmark a specific batch size (e.g. 1, 2, 4, 8, 16, 32)
+    double benchmark_batch(int batch_size, const cv::Mat& sample_image, int iterations = 100);
+
+    // Full Saturation Curve Benchmark across multiple batch sizes
+    void benchmark_saturation(const cv::Mat& sample_image, const std::vector<int>& batch_sizes = {1, 2, 4, 8, 16, 32}, int iterations = 100);
 
     // Benchmark mode: runs only the GPU inference portion
     double benchmark_inference(int iterations = 100);
@@ -83,6 +95,12 @@ private:
     void* d_output_ = nullptr;
     void* d_raw_bgr_ = nullptr;
     size_t allocated_raw_bgr_size_ = 0;
+    
+    // Batch memory pointers
+    int max_batch_size_ = 32;
+    void* d_raw_bgr_batch_ = nullptr;
+    size_t allocated_raw_bgr_batch_size_ = 0;
+
     cudaStream_t stream_ = nullptr;
 
     // CUDA Graph state
@@ -93,6 +111,7 @@ private:
     // Host pinned/aligned buffers
     preprocessor::DataVector h_input_buffer_;
     std::vector<float> h_output_buffer_;
+    std::vector<float> h_output_batch_buffer_;
 };
 
 } // namespace trt_native

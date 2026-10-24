@@ -33,6 +33,7 @@ A high-performance image classification system built with C++ and ONNX Runtime, 
 | 🏎️ [**Station 5: 100% 純 C++ 原生 TensorRT 引擎**](docs/station5_native_tensorrt_notes.md) | **Native C++ API & Zero Overhead** | • 擺脫 ONNX Runtime 與 Python 包裝，純 C++ 原生引擎<br>• `IRuntime` ➔ `ICudaEngine` ➔ `IExecutionContext` ➔ `enqueueV3`<br>• 零調度開銷，延遲壓至 **0.39 ms (2516+ FPS)** |
 | ⚡ [**Station 6: GPU 原生自訂 CUDA Kernel 前處理**](docs/station6_cuda_preprocessor_notes.md) | **Custom CUDA Kernel & Memory Zero-Copy** | • 將 Resize + BGR轉RGB + Normalize + NCHW 轉置融合為單一 CUDA Kernel<br>• 2D Thread Grid (14x14 Blocks) 映射與雙線性插值<br>• 前處理延遲從 0.23 ms 暴降至 **0.0093 ms (>100,000 FPS)** |
 | 🔮 [**Station 7: CUDA Graphs 零調度開銷圖錄製**](docs/station7_cuda_graphs_notes.md) | **CUDA Graph Hardware Topology Replay** | • Stream Capture 預編譯靜態 DAG 依賴拓撲 (`cudaGraphExec_t`)<br>• 消滅 CPU Kernel Launch 延遲氣泡 (~130 微秒)<br>• 單串流端到端延遲壓至 **0.30 ms (3,318 FPS)** |
+| 🌊 [**Station 8: 動態批次處理與 GPU 吞吐量飽和度壓測**](docs/station8_dynamic_batching_notes.md) | **Dynamic Batching & Saturation Benchmark** | • TensorRT Optimization Profile (`min/opt/max`) 動態維度綁定<br>• 3D CUDA Grid 批次前處理 Kernel，平行處理 $N$ 張圖像<br>• 繪製吞吐量飽和曲線，突破 **6,062+ FPS (5.7x vs. Batch 1)** |
 
 ---
 
@@ -51,6 +52,7 @@ A high-performance image classification system built with C++ and ONNX Runtime, 
 | **CUDA Graph 硬體重播 (全圖固化零發射開銷)** | 49.36 ms (全 CPU 基準) | **0.30 ms** (單串流極限) | 🚀 **164x 加速 (3318 FPS)** |
 | **多 Stream 非同步吞吐量 (ORT-TRT)** | 150 FPS (CPU) | **2000 FPS** (Dual-Stream ORT) | **13.3x** |
 | **多 Stream 非同步吞吐量 (Native TRT)** | 150 FPS (CPU) | **3200+ FPS** (Dual-Stream Pure C++) | 🚀 **21.3x (極限吞吐)** |
+| **Station 8 動態批次飽和推論 (Batch Size = 32)** | 150 FPS (CPU) | **6062+ FPS** (Dynamic Batching) | 🚀 **40.4x vs Baseline (5.7x vs B=1)** |
 
 ### 2. Model Modes Comparison
 
@@ -63,6 +65,7 @@ A high-performance image classification system built with C++ and ONNX Runtime, 
 | **GPU (CUDA Graph Hardware Replay Single Stream)** | **0.30 ms** | **3318+ FPS** | 🚀 **22.1x (單串流極致)** |
 | **GPU (Native TensorRT 10 Pure C++ Dual-Stream)** | **0.31 ms** | **3214+ FPS** | 🚀 **21.4x (高併發高峰)** |
 | **Station 6 GPU CUDA Preprocessor (Alone)** | **0.0093 ms** | **106,700+ FPS** | 🚀 **468x vs Baseline** |
+| **Station 8 GPU Dynamic Batching (Batch = 32)** | **0.16 ms/img** | **6,062+ FPS** | 🚀 **40.4x vs Baseline (5.70x vs B=1)** |
 | INT8 Model | 8.4 ms | 120 FPS | - |
 
 ---

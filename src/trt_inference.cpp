@@ -8,6 +8,7 @@
 #include <numeric>
 #include <thread>
 #include <future>
+#include <iomanip>
 
 namespace trt_native {
 
@@ -25,8 +26,8 @@ public:
 
 static TrtLogger gLogger;
 
-TrtEngine::TrtEngine(const std::string& engine_path)
-    : engine_path_(engine_path) {
+TrtEngine::TrtEngine(const std::string& engine_path, int max_batch_size)
+    : engine_path_(engine_path), max_batch_size_(max_batch_size) {
     
     auto t0 = std::chrono::high_resolution_clock::now();
 
@@ -71,13 +72,20 @@ TrtEngine::~TrtEngine() {
 }
 
 void TrtEngine::init_cuda() {
-    // Input: 1 x 3 x 224 x 224 = 150,528 floats
-    // Output: 1 x 1000 = 1,000 floats
-    size_t input_size = 1 * 3 * 224 * 224 * sizeof(float);
-    size_t output_size = 1000 * sizeof(float);
+    // Check if input tensor has dynamic batch dimension
+    auto in_dims = engine_->getTensorShape("input_tensor");
+    if (in_dims.d[0] == -1) {
+        // Set default batch size = 1 for dynamic profiles
+        context_->setInputShape("input_tensor", nvinfer1::Dims4(1, 3, 224, 224));
+    }
+
+    // Allocate memory for up to max_batch_size_
+    size_t input_size = static_cast<size_t>(max_batch_size_) * 3 * 224 * 224 * sizeof(float);
+    size_t output_size = static_cast<size_t>(max_batch_size_) * 1000 * sizeof(float);
 
     h_input_buffer_.resize(1 * 3 * 224 * 224);
     h_output_buffer_.resize(1000);
+    h_output_batch_buffer_.resize(max_batch_size_ * 1000);
 
     cudaError_t err = cudaMalloc(&d_input_, input_size);
     if (err != cudaSuccess) {
@@ -112,6 +120,11 @@ void TrtEngine::cleanup_cuda() {
         cudaFree(d_raw_bgr_);
         d_raw_bgr_ = nullptr;
         allocated_raw_bgr_size_ = 0;
+    }
+    if (d_raw_bgr_batch_) {
+        cudaFree(d_raw_bgr_batch_);
+        d_raw_bgr_batch_ = nullptr;
+        allocated_raw_bgr_batch_size_ = 0;
     }
     if (stream_) {
         cudaStreamDestroy(stream_);
@@ -604,6 +617,176 @@ double TrtEngine::benchmark_cuda_graph(const cv::Mat& sample_image, int iteratio
               << "    FPS:  " << (1000.0 / avg) << " FPS\n";
 
     return avg;
+}
+
+// ============================================================================
+// Station 8: Dynamic Batching Implementation
+// ============================================================================
+
+std::vector<std::vector<Prediction>> TrtEngine::predict_batch(const std::vector<cv::Mat>& images, int top_k) {
+    if (images.empty()) return {};
+
+    int batch_size = static_cast<int>(images.size());
+    if (batch_size > max_batch_size_) {
+        throw std::runtime_error("Batch size " + std::to_string(batch_size) + " exceeds max_batch_size " + std::to_string(max_batch_size_));
+    }
+
+    // 1. Prepare contiguous host BGR buffer and upload to device
+    int src_w = images[0].cols;
+    int src_h = images[0].rows;
+    size_t single_raw_size = static_cast<size_t>(src_w) * src_h * 3;
+    size_t total_raw_size = single_raw_size * batch_size;
+
+    if (total_raw_size > allocated_raw_bgr_batch_size_) {
+        if (d_raw_bgr_batch_) cudaFree(d_raw_bgr_batch_);
+        cudaMalloc(&d_raw_bgr_batch_, total_raw_size);
+        allocated_raw_bgr_batch_size_ = total_raw_size;
+    }
+
+    // Copy each image in the batch into contiguous device buffer
+    for (int b = 0; b < batch_size; ++b) {
+        if (images[b].cols != src_w || images[b].rows != src_h) {
+            throw std::runtime_error("All images in a batch must have identical resolution");
+        }
+        uint8_t* dst_dev_ptr = static_cast<uint8_t*>(d_raw_bgr_batch_) + b * single_raw_size;
+        cudaMemcpyAsync(dst_dev_ptr, images[b].data, single_raw_size, cudaMemcpyHostToDevice, stream_);
+    }
+
+    // 2. Launch Batched CUDA Preprocessing Kernel
+    cuda_preprocess::launch_cuda_preprocess_batch(
+        static_cast<const uint8_t*>(d_raw_bgr_batch_), src_w, src_h,
+        static_cast<float*>(d_input_), 224, 224, batch_size, stream_
+    );
+
+    // 3. Set Dynamic Input Shape for TensorRT (if dynamic)
+    auto in_dims = engine_->getTensorShape("input_tensor");
+    if (in_dims.d[0] == -1) {
+        context_->setInputShape("input_tensor", nvinfer1::Dims4(batch_size, 3, 224, 224));
+    }
+
+    // 4. Enqueue Batched TensorRT Inference
+    context_->enqueueV3(stream_);
+
+    // 5. Async D2H Transfer
+    size_t total_output_size = static_cast<size_t>(batch_size) * 1000 * sizeof(float);
+    cudaMemcpyAsync(h_output_batch_buffer_.data(), d_output_, total_output_size, cudaMemcpyDeviceToHost, stream_);
+
+    // 6. Synchronize Stream
+    cudaStreamSynchronize(stream_);
+
+    // 7. Extract Top-K predictions for each batch item
+    std::vector<std::vector<Prediction>> all_predictions(batch_size);
+    for (int b = 0; b < batch_size; ++b) {
+        const float* cur_logits = h_output_batch_buffer_.data() + b * 1000;
+        std::vector<int> indices(1000);
+        std::iota(indices.begin(), indices.end(), 0);
+        std::partial_sort(indices.begin(), indices.begin() + top_k, indices.end(),
+            [cur_logits](int i1, int i2) {
+                return cur_logits[i1] > cur_logits[i2];
+            });
+
+        for (int k = 0; k < top_k; ++k) {
+            int idx = indices[k];
+            std::string label = "unknown";
+            auto it = imagenet::LABELS.find(idx);
+            if (it != imagenet::LABELS.end()) {
+                label = it->second;
+            }
+            all_predictions[b].push_back({
+                idx,
+                cur_logits[idx],
+                label
+            });
+        }
+    }
+
+    return all_predictions;
+}
+
+double TrtEngine::benchmark_batch(int batch_size, const cv::Mat& sample_image, int iterations) {
+    if (batch_size <= 0 || batch_size > max_batch_size_) {
+        throw std::runtime_error("Invalid batch size: " + std::to_string(batch_size));
+    }
+
+    int src_w = sample_image.cols;
+    int src_h = sample_image.rows;
+    size_t single_raw_size = static_cast<size_t>(src_w) * src_h * 3;
+    size_t total_raw_size = single_raw_size * batch_size;
+
+    if (total_raw_size > allocated_raw_bgr_batch_size_) {
+        if (d_raw_bgr_batch_) cudaFree(d_raw_bgr_batch_);
+        cudaMalloc(&d_raw_bgr_batch_, total_raw_size);
+        allocated_raw_bgr_batch_size_ = total_raw_size;
+    }
+
+    // Replicate sample image to device buffer
+    for (int b = 0; b < batch_size; ++b) {
+        uint8_t* dst_dev_ptr = static_cast<uint8_t*>(d_raw_bgr_batch_) + b * single_raw_size;
+        cudaMemcpy(dst_dev_ptr, sample_image.data, single_raw_size, cudaMemcpyHostToDevice);
+    }
+
+    auto in_dims = engine_->getTensorShape("input_tensor");
+    if (in_dims.d[0] == -1) {
+        context_->setInputShape("input_tensor", nvinfer1::Dims4(batch_size, 3, 224, 224));
+    }
+
+    size_t total_output_size = static_cast<size_t>(batch_size) * 1000 * sizeof(float);
+
+    // Warmup
+    for (int i = 0; i < 10; ++i) {
+        cuda_preprocess::launch_cuda_preprocess_batch(
+            static_cast<const uint8_t*>(d_raw_bgr_batch_), src_w, src_h,
+            static_cast<float*>(d_input_), 224, 224, batch_size, stream_
+        );
+        context_->enqueueV3(stream_);
+        cudaMemcpyAsync(h_output_batch_buffer_.data(), d_output_, total_output_size, cudaMemcpyDeviceToHost, stream_);
+        cudaStreamSynchronize(stream_);
+    }
+
+    std::vector<double> latencies;
+    latencies.reserve(iterations);
+
+    for (int i = 0; i < iterations; ++i) {
+        auto t0 = std::chrono::high_resolution_clock::now();
+        cuda_preprocess::launch_cuda_preprocess_batch(
+            static_cast<const uint8_t*>(d_raw_bgr_batch_), src_w, src_h,
+            static_cast<float*>(d_input_), 224, 224, batch_size, stream_
+        );
+        context_->enqueueV3(stream_);
+        cudaMemcpyAsync(h_output_batch_buffer_.data(), d_output_, total_output_size, cudaMemcpyDeviceToHost, stream_);
+        cudaStreamSynchronize(stream_);
+        auto t1 = std::chrono::high_resolution_clock::now();
+        latencies.push_back(std::chrono::duration<double, std::milli>(t1 - t0).count());
+    }
+
+    double total = std::accumulate(latencies.begin(), latencies.end(), 0.0);
+    double avg_batch_ms = total / iterations;
+    return avg_batch_ms;
+}
+
+void TrtEngine::benchmark_saturation(const cv::Mat& sample_image, const std::vector<int>& batch_sizes, int iterations) {
+    std::cout << "\n=========================================================================\n"
+              << "   Station 8: Dynamic Batching Saturation Curve Benchmark\n"
+              << "=========================================================================\n"
+              << "  Batch Size | Batch Latency (ms) | Per-Image (ms) | Throughput (FPS) | Speedup\n"
+              << " ------------+--------------------+----------------+------------------+---------\n";
+
+    double baseline_fps = 0.0;
+    for (int b : batch_sizes) {
+        if (b > max_batch_size_) continue;
+        double batch_ms = benchmark_batch(b, sample_image, iterations);
+        double per_img_ms = batch_ms / b;
+        double fps = (1000.0 * b) / batch_ms;
+        if (b == 1) baseline_fps = fps;
+        double speedup = (baseline_fps > 0.0) ? (fps / baseline_fps) : 1.0;
+
+        std::cout << "  " << std::setw(10) << b << " | "
+                  << std::setw(18) << std::fixed << std::setprecision(3) << batch_ms << " | "
+                  << std::setw(14) << std::fixed << std::setprecision(4) << per_img_ms << " | "
+                  << std::setw(16) << std::fixed << std::setprecision(1) << fps << " | "
+                  << std::setw(7) << std::fixed << std::setprecision(2) << speedup << "x\n";
+    }
+    std::cout << "=========================================================================\n\n";
 }
 
 } // namespace trt_native

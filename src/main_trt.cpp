@@ -10,24 +10,37 @@ int main(int argc, char* argv[]) {
     std::string image_path = "test_cat.jpg";
     std::string engine_path = "models/resnet18_native_fp16.engine";
     bool run_benchmark = false;
+    bool run_saturation = false;
+    bool use_dynamic = false;
 
     // Parse simple args
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
         if (arg == "-b" || arg == "--benchmark") {
             run_benchmark = true;
+        } else if (arg == "-s" || arg == "--saturation") {
+            run_saturation = true;
+            use_dynamic = true;
+        } else if (arg == "-d" || arg == "--dynamic") {
+            use_dynamic = true;
         } else if (arg == "-e" || arg == "--engine") {
             if (i + 1 < argc) engine_path = argv[++i];
         } else if (arg == "-h" || arg == "--help") {
             std::cout << "Usage: main_trt [OPTIONS] <image_path>\n"
                       << "Options:\n"
                       << "  -e, --engine PATH   Path to TensorRT .engine (default: models/resnet18_native_fp16.engine)\n"
+                      << "  -d, --dynamic       Use dynamic batch TensorRT engine (models/resnet18_dynamic_fp16.engine)\n"
+                      << "  -s, --saturation    Run Station 8 Saturation Curve Benchmark (batch=1,2,4,8,16,32)\n"
                       << "  -b, --benchmark     Run 100 benchmark iterations\n"
                       << "  -h, --help          Show help\n";
             return 0;
         } else if (arg[0] != '-') {
             image_path = arg;
         }
+    }
+
+    if (use_dynamic && engine_path == "models/resnet18_native_fp16.engine") {
+        engine_path = "models/resnet18_dynamic_fp16.engine";
     }
 
     std::cout << "========================================\n"
@@ -126,10 +139,26 @@ int main(int argc, char* argv[]) {
                   << " (score: " << graph_predictions[i].confidence << ", id: " << graph_predictions[i].class_id << ")\n";
     }
 
+    // 7. Station 8 Batched Prediction Demo (if dynamic)
+    if (use_dynamic) {
+        std::cout << "\n[9] Running Batched Prediction (Station 8 Dynamic Batching, Batch Size = 4)...\n";
+        std::vector<cv::Mat> batch_images = {image, image, image, image};
+        auto batch_preds = engine->predict_batch(batch_images, 3);
+        for (size_t b = 0; b < batch_preds.size(); ++b) {
+            std::cout << "    [Image " << (b + 1) << "] Top-1: " << batch_preds[b][0].label
+                      << " (score: " << batch_preds[b][0].confidence << ", id: " << batch_preds[b][0].class_id << ")\n";
+        }
+    }
+
+    // 8. Station 8 Saturation Curve Benchmark
+    if (run_saturation) {
+        engine->benchmark_saturation(image, {1, 2, 4, 8, 16, 32}, 100);
+    }
+
     std::cout << "\n========================================\n"
-              << "   Performance Summary (Station 7: CUDA Graphs)\n"
+              << "   Performance Summary\n"
               << "========================================\n"
-              << "  Mode:               Native TensorRT 10 + CUDA Graph\n"
+              << "  Engine:             " << engine_path << "\n"
               << "  Engine load:        " << engine->get_load_time_ms() << " ms\n"
               << "  Station 3 CPU Pre:  " << engine->get_last_preprocess_time_ms() << " ms (Fused C++)\n"
               << "  Station 6 GPU Pre:  " << engine->get_last_gpu_preprocess_time_ms() << " ms (CUDA Kernel)\n"
